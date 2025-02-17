@@ -1,10 +1,56 @@
-"""
-constants.py
--------------
-Holds constants for scaling, band names, etc.
-"""
-
 import numpy as np
+from dataclasses import dataclass
+from typing import Optional, List
+from datetime import datetime
+
+@dataclass
+class BandData:
+    """
+    Data class to hold Sentinel-2 time-series band data + optional DEM + raw msk_cldprb.
+    
+    Shapes:
+       b2, b4, b8, b11, b12: (T, H, W)
+       msk_cldprb: (T, H, W)
+       dem: (H, W) or None
+       dates: list of length T
+    """
+    b2: np.ndarray
+    b4: np.ndarray
+    b8: np.ndarray
+    b11: np.ndarray
+    b12: np.ndarray
+    msk_cldprb: np.ndarray  # raw cloud-prob band, range ~0..100 after scaling
+    dates: List[datetime]
+
+    dem: Optional[np.ndarray] = None  # shape (H,W) if provided
+
+    def __post_init__(self):
+        # All 5 S2 bands must share the same shape
+        shapes = {
+            'b2': self.b2.shape,
+            'b4': self.b4.shape,
+            'b8': self.b8.shape,
+            'b11': self.b11.shape,
+            'b12': self.b12.shape,
+            'msk_cldprb': self.msk_cldprb.shape
+        }
+        shape_set = set(shapes.values())
+        if len(shape_set) != 1:
+            msg = f"All S2 bands + msk_cldprb must share shape (T,H,W). Got: {shapes}"
+            raise ValueError(msg)
+
+        # Check time dimension
+        (T, H, W) = self.b2.shape
+        if T != len(self.dates):
+            raise ValueError(
+                f"Time dimension in band arrays = {T}, but got {len(self.dates)} dates."
+            )
+
+        # If DEM is provided, must match (H,W)
+        if self.dem is not None:
+            if self.dem.shape != (H, W):
+                raise ValueError(f"DEM shape {self.dem.shape} must match (H,W)={(H,W)}")
+
 
 # Define valid ranges for amplitude, offset, and phase
 PHASE_RANGE = (-np.pi, np.pi)          # We'll shift/scale to [0..65535]
