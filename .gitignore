@@ -19,7 +19,12 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+*.tif
+*.tiff
+*.vrt 
+data/ 
 
+    
 # Virtual Environment
 venv/
 env/
