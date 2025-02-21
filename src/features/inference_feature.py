@@ -85,6 +85,15 @@ class WindowFeature:
             "MSK_CLDPRB":6
         }
     
+    def _log_array_stats(self, arr: np.ndarray, label: str):
+        """Helper method to log basic statistics of an array at debug level."""
+        self.logger.debug(
+            f"{label} stats: min={np.nanmin(arr):.3f}, "
+            f"mean={np.nanmean(arr):.3f}, "
+            f"std={np.nanstd(arr):.3f}, "
+            f"max={np.nanmax(arr):.3f}"
+        )
+    
     def _read_bands_into_BandData(self) -> BandData:
         """
         Reads B2, B4, B8, B11, B12, MSK_CLDPRB from each TIF in the specified Window,
@@ -119,14 +128,12 @@ class WindowFeature:
             b12[i] = b12_uint16.astype(np.float32) / scale_factor
             cld[i] = cld_uint16.astype(np.float32) / scale_factor
 
-        # Create a BandData instance (no DEM here)
         band_data = BandData(
             b2=b2, b4=b4, b8=b8, b11=b11, b12=b12,
             msk_cldprb=cld,
             dates=self.dates,
             dem=None
         )
-        # The __post_init__ in BandData will validate shapes, T= len(dates), etc.
         return band_data
 
     def compute_features(self) -> np.ndarray:
@@ -137,10 +144,19 @@ class WindowFeature:
         """
         # 1) Read raw data into BandData
         band_data = self._read_bands_into_BandData()
-
+        self.logger.debug("After reading bands into BandData:")
+        self._log_array_stats(band_data.b2, "B2")
+        self._log_array_stats(band_data.b4, "B4")
+        self._log_array_stats(band_data.b8, "B8")
+        self._log_array_stats(band_data.b11, "B11")
+        self._log_array_stats(band_data.b12, "B12")
+        self._log_array_stats(band_data.msk_cldprb, "MSK_CLDPRB")
+        
         # 2) Convert raw cloud-prob to QA weights
         qa_weights = compute_quality_weights(band_data.msk_cldprb, logger=self.logger)
-
+        self.logger.debug("Quality weights:")
+        self._log_array_stats(qa_weights, "QA Weights")
+        
         # 3) Compute spectral indices
         ndvi, evi, nbr, crswir = compute_indices(
             band_data.b2, band_data.b4, band_data.b8,
@@ -148,12 +164,17 @@ class WindowFeature:
             logger=self.logger
         )
         indices_dict = {"ndvi": ndvi, "evi": evi, "nbr": nbr, "crswir": crswir}
-
-        # 4) For each index, run robust harmonic fitting => (amp_h1, amp_h2, phs_h1, phs_h2, offset, var)
-        #   Then scale each sub-band.
+        for key, val in indices_dict.items():
+            self.logger.debug(f"Spectral index '{key}':")
+            self._log_array_stats(val, key)
+        
+        # 4) For each index, run robust harmonic fitting and scale each sub-band.
         out_bands = []
         for idx_name in AVAILABLE_INDICES:
             data_cube = indices_dict[idx_name]
+            self.logger.debug(f"Starting harmonic fitting for index '{idx_name}' with input data:")
+            self._log_array_stats(data_cube, f"{idx_name} input")
+            
             results = robust_harmonic_fitting(
                 data_cube,
                 qa_weights,
@@ -163,19 +184,37 @@ class WindowFeature:
                 logger=self.logger
             )
             amp_h1, amp_h2, phs_h1, phs_h2, offset_map, var_map = results
-
-            sa1 = scale_amplitude(amp_h1)
-            sa2 = scale_amplitude(amp_h2)
+            
+            self.logger.debug(f"Raw harmonic fitting results for '{idx_name}':")
+            self._log_array_stats(amp_h1, f"{idx_name} amp_h1 raw")
+            self._log_array_stats(amp_h2, f"{idx_name} amp_h2 raw")
+            self._log_array_stats(phs_h1, f"{idx_name} phs_h1 raw")
+            self._log_array_stats(phs_h2, f"{idx_name} phs_h2 raw")
+            self._log_array_stats(offset_map, f"{idx_name} offset raw")
+            self._log_array_stats(var_map, f"{idx_name} variance raw")
+            
+            sa1 = scale_amplitude(amp_h1, idx_name)
+            sa2 = scale_amplitude(amp_h2, idx_name)
             sp1 = scale_phase(phs_h1)
             sp2 = scale_phase(phs_h2)
-            so  = scale_offset(offset_map)
+            so  = scale_offset(offset_map, idx_name)
             var_clamped = np.clip(var_map, 0, 2)
             sv  = scale_array_to_uint16(var_clamped, 0, 2)
-
+            
+            self.logger.debug(f"Scaled harmonic fitting results for '{idx_name}':")
+            self._log_array_stats(sa1, f"{idx_name} amplitude h1 scaled")
+            self._log_array_stats(sa2, f"{idx_name} amplitude h2 scaled")
+            self._log_array_stats(sp1, f"{idx_name} phase h1 scaled")
+            self._log_array_stats(sp2, f"{idx_name} phase h2 scaled")
+            self._log_array_stats(so, f"{idx_name} offset scaled")
+            self._log_array_stats(sv, f"{idx_name} residual variance scaled")
+            
             out_bands.extend([sa1, sa2, sp1, sp2, so, sv])
-
+        
         # Final shape => (#features, H, W)
         output_cube = np.stack(out_bands, axis=0)
+        self.logger.debug("Final output cube:")
+        self._log_array_stats(output_cube, "Output cube")
         return output_cube
 
 
@@ -257,11 +296,16 @@ class TileFeature:
         )
         return wf.compute_features()
 
-    def run(self):
+    def run(self, max_windows: int = 10):
         self.logger.info(f"Generating features => {self.output_path.name}")
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
 
         windows_list = list(self._generate_windows())
+        # Limit the number of windows if specified
+        if max_windows:
+            windows_list = windows_list[:max_windows]
+            self.logger.info(f"Limited to first {max_windows} windows")
+            
         self.logger.info(f"block_size={self.block_size}, #windows={len(windows_list)}")
 
         with rasterio.open(self.output_path, "w", **self.out_profile) as dst:
@@ -301,7 +345,7 @@ class FolderFeature:
         self.output_dir = Path(self.metadata["output_dir"])
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def process_tile(self, tile_idx: int, num_harmonics=2, max_iter=10):
+    def process_tile(self, tile_idx: int, num_harmonics=2, max_iter=10, max_windows=None):
         cfg_file = self.config_dir / f"tile_config_{tile_idx:03d}.json"
         if not cfg_file.exists():
             raise FileNotFoundError(f"{cfg_file} not found.")
@@ -309,17 +353,16 @@ class FolderFeature:
         with open(cfg_file) as f:
             tile_cfg = json.load(f)
 
-        # We'll assume single TIF + single date
-        tif_path = Path(tile_cfg["tif_path"])
-        date_str = tile_cfg["date"]
-        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        # Use the new config keys (lists of tif_paths and dates)
+        tif_paths = [Path(tp) for tp in tile_cfg["tif_paths"]]
+        dates = [datetime.strptime(dt, "%Y-%m-%d") for dt in tile_cfg["dates"]]
 
         out_name = f"features_{tile_cfg['tile_idx']:03d}.tif"
         out_path = self.output_dir / out_name
 
         tile_feat = TileFeature(
-            tif_paths=[tif_path],
-            dates=[date_obj],
+            tif_paths=tif_paths,
+            dates=dates,
             output_path=out_path,
             num_harmonics=num_harmonics,
             max_iter=max_iter,
@@ -327,7 +370,30 @@ class FolderFeature:
             max_workers=self.max_workers,
             logger=self.logger
         )
-        tile_feat.run()
+        tile_feat.run(max_windows=max_windows)
+
+    def run_test(self, max_tiles: int = 2, max_windows: int = 8, num_harmonics=2, max_iter=10):
+        """Run a test with limited number of tiles and windows per tile.
+        
+        Args:
+            max_tiles: Maximum number of tiles to process
+            max_windows: Maximum number of windows to process per tile
+            num_harmonics: Number of harmonics to fit
+            max_iter: Maximum number of IRLS iterations
+        """
+        test_tiles = min(max_tiles, self.num_tiles)
+        self.logger.info(f"Running test on {test_tiles} tiles with {max_windows} windows each")
+        
+        for idx in range(test_tiles):
+            self.logger.info(f"Processing test tile {idx}/{test_tiles - 1}")
+            self.process_tile(
+                idx, 
+                num_harmonics=num_harmonics, 
+                max_iter=max_iter,
+                max_windows=max_windows
+            )
+        
+        self.logger.info("Test run completed")
 
     def run_all(self, num_harmonics=2, max_iter=10):
         for idx in range(self.num_tiles):

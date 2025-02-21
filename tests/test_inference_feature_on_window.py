@@ -15,11 +15,21 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 from rasterio.windows import Window
+import logging
+# Create logs directory if it doesn't exist
+os.makedirs('logs', exist_ok=True)
+
+# Configure logging to write to file with timestamp
+logging.basicConfig(
+    level=logging.DEBUG,
+    filename=f'logs/test_inference_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log',
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 # Adjust imports to your actual project structure:
 sys.path.append(str(Path(__file__).parent.parent))  # so we can import from src
 from src.features.inference_feature import WindowFeature
-from src.constants import AVAILABLE_INDICES
+from src.constants import AVAILABLE_INDICES, TARGET_AMP_RANGE, TARGET_OFFSET_RANGE
 
 def test_inference_feature_on_window():
     print("\n=== Starting feature inference test ===")
@@ -59,7 +69,7 @@ def test_inference_feature_on_window():
         window=w,
         num_harmonics=2,
         max_iter=5,
-        logger=None
+        logger=logging.getLogger(__name__)
     )
     print("WindowFeature object created successfully")
 
@@ -84,18 +94,27 @@ def test_inference_feature_on_window():
     # phase for harmonic 1, phase for harmonic 2, offset, residual variance.
     feature_names = ["Amplitude (h1)", "Amplitude (h2)", "Phase (h1)", "Phase (h2)", "Offset", "Residual Variance"]
 
-    # Define scaling function descriptions for each feature.
-    scaling_descriptions = {
-        "Amplitude (h1)": "scale_amplitude: scales [0,2.0] -> [0,65535]",
-        "Amplitude (h2)": "scale_amplitude: scales [0,2.0] -> [0,65535]",
-        "Phase (h1)": "scale_phase: shifts [-π,π] to [0,2π] then scales to [0,65535]",
-        "Phase (h2)": "scale_phase: shifts [-π,π] to [0,2π] then scales to [0,65535]",
-        "Offset": "scale_offset: scales [0,2.0] -> [0,65535]",
-        "Residual Variance": "scale_array_to_uint16: clips [0,2.0] then scales to [0,65535]"
-    }
-
     def compute_stats(arr):
+        # Determine which index and feature type this band corresponds to
+        band_i = current_band_index  # This will be set in the plotting loop
+        group_index = band_i // len(feature_names)
+        feature_type = feature_names[band_i % len(feature_names)]
+        indice_label = AVAILABLE_INDICES[group_index].lower() if group_index < len(AVAILABLE_INDICES) else "unknown"
+
+        # Convert uint16 to physical values based on feature type
         arrf = arr.astype(float)
+        if "Amplitude" in feature_type:
+            # Unscale amplitude based on index-specific range
+            max_amp = TARGET_AMP_RANGE[indice_label][1]
+            arrf = (arrf / 65535.0) * max_amp
+        elif "Offset" in feature_type:
+            # Unscale offset based on index-specific range
+            max_offset = TARGET_OFFSET_RANGE[indice_label][1]
+            arrf = (arrf / 65535.0) * max_offset
+        elif "Phase" in feature_type:
+            # Unscale phase from [0, 65535] back to [-π, π]
+            arrf = (arrf / 65535.0) * (2 * np.pi) - np.pi
+        
         return {
             "min": np.nanmin(arrf),
             "max": np.nanmax(arrf),
@@ -123,28 +142,47 @@ def test_inference_feature_on_window():
         # Each feature band gets its own page.
         n_bands = feature_cube.shape[0]
         for band_i in range(n_bands):
+            current_band_index = band_i  # Used by compute_stats
             band_data = feature_cube[band_i].astype(float)
-            stats = compute_stats(band_data)
+            group_index = band_i // len(feature_names)
+            feature_type = feature_names[band_i % len(feature_names)]
+            indice_label = AVAILABLE_INDICES[group_index].lower() if group_index < len(AVAILABLE_INDICES) else "unknown"
+
+            # Convert to physical values for display
+            if "Amplitude" in feature_type:
+                max_amp = TARGET_AMP_RANGE[indice_label][1]
+                band_data = (band_data / 65535.0) * max_amp
+            elif "Offset" in feature_type:
+                max_offset = TARGET_OFFSET_RANGE[indice_label][1]
+                band_data = (band_data / 65535.0) * max_offset
+            elif "Phase" in feature_type:
+                band_data = (band_data / 65535.0) * (2 * np.pi) - np.pi
+
+            stats = compute_stats(feature_cube[band_i])
             fig, ax = plt.subplots(figsize=(8, 8))
             im = ax.imshow(band_data, cmap="viridis")
             fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
-            # Determine which index and feature type this band corresponds to.
-            # We assume that for each index in AVAILABLE_INDICES, the algorithm produces 6 bands.
-            group_index = band_i // len(feature_names)
-            feature_type = feature_names[band_i % len(feature_names)]
-            # If group_index is within the range of AVAILABLE_INDICES, use it; otherwise mark as Unknown.
-            indice_label = AVAILABLE_INDICES[group_index].upper() if group_index < len(AVAILABLE_INDICES) else "Unknown"
-            ax.set_title(f"Index: {indice_label} | Feature: {feature_type}")
+            # Update title to include index name
+            indice_label_upper = AVAILABLE_INDICES[group_index].upper() if group_index < len(AVAILABLE_INDICES) else "Unknown"
+            ax.set_title(f"Index: {indice_label_upper} | Feature: {feature_type}")
             
-            # Append both stat information and scaling function description to the xlabel.
-            scaling_info = scaling_descriptions.get(feature_type, "No scaling info available")
+            # Update scaling descriptions to show physical ranges
+            if "Amplitude" in feature_type:
+                scaling_info = f"Physical range: [0, {TARGET_AMP_RANGE[indice_label][1]}]"
+            elif "Offset" in feature_type:
+                scaling_info = f"Physical range: [0, {TARGET_OFFSET_RANGE[indice_label][1]}]"
+            elif "Phase" in feature_type:
+                scaling_info = "Physical range: [-π, π]"
+            else:
+                scaling_info = "No scaling info available"
+
             ax.set_xlabel(
-                f"min={stats['min']:.2f}, max={stats['max']:.2f}, mean={stats['mean']:.2f}, std={stats['std']:.2f}\n{scaling_info}"
+                f"min={stats['min']:.3f}, max={stats['max']:.3f}, mean={stats['mean']:.3f}, std={stats['std']:.3f}\n{scaling_info}"
             )
             pdf.savefig(fig)
             plt.close(fig)
-            print(f"  - Added feature: {indice_label} - {feature_type} to PDF")
+            print(f"  - Added feature: {indice_label_upper} - {feature_type} to PDF")
 
     print(f"\n=== Test completed successfully ===")
     print(f"PDF saved at: {pdf_path}")

@@ -17,7 +17,7 @@ import math
 import math
 from typing import Optional, Callable, List, Tuple
 
-from src.constants import PHASE_RANGE, AMP_RANGE, OFFSET_RANGE
+from src.constants import PHASE_RANGE,TARGET_AMP_RANGE, TARGET_OFFSET_RANGE
 
 def scale_array_to_uint16(
     data: np.ndarray,
@@ -42,13 +42,21 @@ def scale_phase(phase: np.ndarray) -> np.ndarray:
     scaled_clipped = np.clip(scaled, 0, 65535).astype(np.uint16)
     return scaled_clipped
 
-def scale_amplitude(amp: np.ndarray) -> np.ndarray:
-    """Scale amplitude array to [0..65535] based on AMP_RANGE = (0,2)."""
-    return scale_array_to_uint16(amp, AMP_RANGE[0], AMP_RANGE[1])
+def scale_amplitude(amp: np.ndarray, indice: str) -> np.ndarray:
+    """Scale amplitude array to [0..65535] using target range defined for the given indice.
 
-def scale_offset(offset: np.ndarray) -> np.ndarray:
-    """Scale offset array to [0..65535]."""
-    return scale_array_to_uint16(offset, OFFSET_RANGE[0], OFFSET_RANGE[1])
+    The target ranges are defined in constants.TARGET_AMP_RANGE.
+    """
+    min_val, max_val = TARGET_AMP_RANGE[indice]
+    return scale_array_to_uint16(amp, min_val, max_val)
+
+def scale_offset(offset: np.ndarray, indice: str) -> np.ndarray:
+    """Scale offset array to [0..65535] using target range defined for the given indice.
+
+    The target ranges are defined in constants.TARGET_OFFSET_RANGE.
+    """
+    min_val, max_val = TARGET_OFFSET_RANGE[indice]
+    return scale_array_to_uint16(offset, min_val, max_val)
 
 def compute_indices(
     b2: np.ndarray,
@@ -67,21 +75,27 @@ def compute_indices(
         logger.info("Computing spectral indices for each time slice...")
 
     eps = 1e-6
+    crswir_coeff = (1610 - 842) / (2190 - 842)
 
     # NDVI
-    ndvi = (b8 - b4) / np.maximum(b8 + b4, eps)
+    ndvi = (b8 - b4) / (b8 + b4 + eps)
 
     # EVI (some standard constants)
-    #   EVI = 2.5 * (b8 - b4) / (b8 + 6*b4 - 7.5*b2 + 1)
-    evi_denom = (b8 + 6.0*b4 - 7.5*b2 + 1.0)
-    evi = 2.5 * (b8 - b4) / np.maximum(evi_denom, eps)
+    evi_denom = (b8 + 6.0 * b4 - 7.5 * b2 + 1.0 + eps)
+    evi = 2.5 * (b8 - b4) / evi_denom
 
     # NBR
-    nbr = (b8 - b12) / np.maximum(b8 + b12, eps)
+    nbr = (b8 - b12) / (b8 + b12 + eps)
 
     # CRSWIR as example
-    #   crswir = b11 / (b12 + eps)
-    crswir = b11 / np.maximum(b12, eps)
+    crswir_denom = ((b12 - b8) * crswir_coeff + b8) + eps
+    crswir = b11 / crswir_denom
+
+    # Clipping each index to its valid range:
+    ndvi = np.clip(ndvi, -1.0, 1.0)
+    evi = np.clip(evi, -1.0, 1.0)
+    nbr = np.clip(nbr, -1.0, 1.0)
+    crswir = np.clip(crswir, 0.0, 5.0)
 
     return ndvi, evi, nbr, crswir
 

@@ -54,8 +54,19 @@ class BandData:
 
 # Define valid ranges for amplitude, offset, and phase
 PHASE_RANGE = (-np.pi, np.pi)          # We'll shift/scale to [0..65535]
-AMP_RANGE   = (0, 2.0)                 # Example guess: clamp amplitude to [0..2]
-OFFSET_RANGE= (0, 2.0)                 # Example guess: clamp offset to [0..2]
+
+TARGET_AMP_RANGE = {
+    'ndvi': (0.0, 1.0),
+    'evi': (0.0, 1.0),
+    'nbr': (0.0, 1.0),
+    'crswir': (0.0, 2.5)
+}
+TARGET_OFFSET_RANGE = {
+    'ndvi': (0.0, 1.0),
+    'evi': (0.0, 1.0),
+    'nbr': (0.0, 1.0),
+    'crswir': (0.0, 2.5)
+}
 
 # Number of harmonics: typically set from command-line
 # but you can define a default here if you want

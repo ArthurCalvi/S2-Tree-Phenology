@@ -10,7 +10,7 @@ We assume each subfolder is named like:
    20230215/s2/
 ... 
 and contains .tif files with the required 6 bands (B2, B4, B8, B11, B12, MSK_CLDPRB).
-We store for each tile a list of paths/dates. 
+We store for each spatial location a list of paths/dates across time. 
 """
 
 import argparse
@@ -19,6 +19,7 @@ import logging
 import sys
 from pathlib import Path
 from datetime import datetime
+from collections import defaultdict
 
 def setup_logger():
     logger = logging.getLogger("prepare_inference_feature")
@@ -28,6 +29,18 @@ def setup_logger():
     ch.setFormatter(fmt)
     logger.addHandler(ch)
     return logger
+
+def extract_spatial_id(tif_path: Path) -> str:
+    """
+    Extract a spatial identifier from the TIF filename.
+    Assumes filenames like: s2_EPSG2154_512000_6860800.tif
+    Returns: "512000_6860800"
+    """
+    stem = tif_path.stem  # removes .tif
+    parts = stem.split('_')
+    if len(parts) >= 4:
+        return f"{parts[-2]}_{parts[-1]}"
+    return stem  # fallback to full stem if pattern doesn't match
 
 def main():
     parser = argparse.ArgumentParser(description="Prepare feature extraction configs.")
@@ -39,6 +52,8 @@ def main():
                         help="Year to scan in mosaic dir (default=2023).")
     parser.add_argument("--max-concurrent-jobs", type=int, default=20,
                         help="Max array concurrency for HPC.")
+    parser.add_argument("--min-dates", type=int, default=3,
+                        help="Minimum number of dates required per tile (default=3).")
     args = parser.parse_args()
 
     logger = setup_logger()
@@ -48,14 +63,14 @@ def main():
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # We suppose each subfolder is named e.g. 20230115, 20230215, etc.
-    # Inside that subfolder there is s2/ with .tif files
-    subfolders = sorted(input_dir.glob(f"{args.year}*"))
-    tile_info_list = []
-    tile_idx = 0
+    # Dictionary to store TIFs and dates for each spatial location
+    spatial_groups = defaultdict(lambda: {"tif_paths": [], "dates": []})
 
+    # We suppose each subfolder is named e.g. 20230115, 20230215, etc.
+    subfolders = sorted(input_dir.glob(f"{args.year}*"))
+    
+    # First, group TIFs by their spatial location
     for sf in subfolders:
-        # e.g. sf = mosaic2023/20230115
         if not sf.is_dir():
             continue
         s2_dir = sf / "s2"
@@ -63,40 +78,66 @@ def main():
             continue
         
         # parse date from folder name, e.g. '20230115'
-        folder_name = sf.name
-        # Attempt to parse yyyymmdd
         try:
-            dt = datetime.strptime(folder_name, "%Y%m%d")
+            dt = datetime.strptime(sf.name, "%Y%m%d")
+            date_str = dt.strftime("%Y-%m-%d")
         except:
-            logger.warning(f"Cannot parse date from {folder_name}, skip.")
+            logger.warning(f"Cannot parse date from {sf.name}, skip.")
             continue
         
         # gather .tif files
         tifs = sorted(s2_dir.glob("*.tif"))
         for tif in tifs:
-            # For the user’s pipeline, we might define "one tile => one .tif" 
-            # Or we might have multiple .tif with different footprints. 
-            # Let's do simplest approach: each .tif is one "tile" config
-            tile_info = {
-                "tile_idx": tile_idx,
-                "date": dt.strftime("%Y-%m-%d"),
-                "tif_path": str(tif)
-            }
-            tile_info_list.append(tile_info)
-            tile_idx += 1
+            spatial_id = extract_spatial_id(tif)
+            spatial_groups[spatial_id]["tif_paths"].append(str(tif))
+            spatial_groups[spatial_id]["dates"].append(date_str)
+
+    # Convert groups to tile configs
+    tile_info_list = []
+    tile_idx = 0
+    
+    for spatial_id, data in spatial_groups.items():
+        # Skip locations with too few dates
+        if len(data["dates"]) < args.min_dates:
+            logger.warning(
+                f"Spatial tile {spatial_id} has only {len(data['dates'])} dates "
+                f"(minimum {args.min_dates} required). Skipping."
+            )
+            continue
+            
+        # Sort both lists by date
+        sorted_pairs = sorted(zip(data["dates"], data["tif_paths"]))
+        dates, tif_paths = zip(*sorted_pairs)
+        
+        tile_info = {
+            "tile_idx": tile_idx,
+            "spatial_id": spatial_id,
+            "dates": list(dates),
+            "tif_paths": list(tif_paths)
+        }
+        tile_info_list.append(tile_info)
+        tile_idx += 1
+
+    if not tile_info_list:
+        logger.error(
+            f"No valid tiles found with minimum {args.min_dates} dates. "
+            "Check your input directory structure and min-dates parameter."
+        )
+        sys.exit(1)
 
     # Write out a main metadata file
     metadata = {
         "num_tiles": len(tile_info_list),
         "output_dir": str(output_dir),
-        "max_concurrent_jobs": args.max_concurrent_jobs
+        "max_concurrent_jobs": args.max_concurrent_jobs,
+        "min_dates_per_tile": args.min_dates
     }
     with open(output_dir / "metadata.json", "w") as f:
         json.dump(metadata, f, indent=2)
 
     # Write each tile config
-    for i, info in enumerate(tile_info_list):
-        cfg_path = output_dir / f"tile_config_{i:03d}.json"
+    for info in tile_info_list:
+        cfg_path = output_dir / f"tile_config_{info['tile_idx']:03d}.json"
         with open(cfg_path, "w") as f:
             json.dump(info, f, indent=2)
 
@@ -105,11 +146,13 @@ def main():
     with open(summary_path, "w") as f:
         f.write("Feature Extraction Configuration Summary\n")
         f.write("----------------------------------------\n")
-        f.write(f"Found {len(tile_info_list)} TIF files.\n")
+        f.write(f"Found {len(tile_info_list)} unique spatial locations.\n")
+        f.write(f"Each tile has at least {args.min_dates} dates.\n")
         f.write(f"Metadata file: metadata.json\n")
         f.write(f"#SBATCH --array=0-{len(tile_info_list)-1}%{args.max_concurrent_jobs}\n")
 
-    logger.info(f"Prepared configs for {len(tile_info_list)} tiles/tifs.")
+    logger.info(f"Prepared configs for {len(tile_info_list)} spatial locations.")
+    logger.info(f"Each tile has at least {args.min_dates} dates.")
     logger.info(f"Configs saved in: {output_dir}")
 
 if __name__ == "__main__":
