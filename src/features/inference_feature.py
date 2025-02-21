@@ -6,11 +6,16 @@ Compute harmonic features for one or more tiles. We use an OOP approach
 at three levels: WindowFeature, TileFeature, FolderFeature.
 """
 
+import sys
+from pathlib import Path
+
+# Add project root to Python path
+project_root = Path(__file__).resolve().parents[2]  # Go up 2 levels from src/features/
+sys.path.append(str(project_root))
+
 import argparse
 import logging
-import sys
 import json
-from pathlib import Path
 import numpy as np
 import rasterio
 from rasterio.windows import Window
