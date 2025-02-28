@@ -20,6 +20,6 @@ module load gdaltorch-gpu/py3/2.2.0  # environment with rasterio
 INPUT_DIR="/lustre/fsn1/projects/rech/ego/uyr48jk/mosaic2023"
 OUTPUT_JSON="/lustre/fsn1/projects/rech/ego/uyr48jk/mosaic2023/qa_raw_mosaic.json"
 
-python $WORK/S2-Tree-Phenology/src/mosaics/qa_raw_mosaics.py \
+python $WORK/S2-Tree-Phenology/src/qa/qa_mosaics.py \
     --input-dir "$INPUT_DIR" \
     --output-json "$OUTPUT_JSON"

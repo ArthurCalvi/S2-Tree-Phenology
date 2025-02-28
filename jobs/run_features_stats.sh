@@ -20,6 +20,7 @@ module load gdal
 INPUT_DIR="/lustre/fswork/projects/rech/ego/uyr48jk/S2-Tree-Phenology/configs"
 OUTPUT_JSON="/lustre/fsn1/projects/rech/ego/uyr48jk/features2023/qa_stats_s2_features.json"
 
-python $WORK/S2-Tree-Phenology/src/features/qa_uint16_stats.py \
+python $WORK/S2-Tree-Phenology/src/qa/qa_features
+.py \
     --input-dir "$INPUT_DIR" \
     --output-json "$OUTPUT_JSON"

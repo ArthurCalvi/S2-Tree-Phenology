@@ -22,6 +22,8 @@ wheels/
 *.tif
 *.tiff
 *.vrt 
+*.png
+*.pdf
 data/ 
 
     
