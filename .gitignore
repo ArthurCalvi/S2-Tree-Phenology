@@ -7,6 +7,8 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+data/
+results/
 downloads/
 eggs/
 .eggs/
@@ -24,7 +26,21 @@ wheels/
 *.vrt 
 *.png
 *.pdf
-data/ 
+*.parquet
+*.geojson
+*.dbf
+*.prj
+*.shx
+*.shp
+*.xml
+*.csv
+*.json
+*.log
+*.txt
+*.md
+*.html
+*.css
+*.js
 
     
 # Virtual Environment

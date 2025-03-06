@@ -90,3 +90,49 @@ band_preprocess = {
     "B12":        lambda arr_uint16: (arr_uint16.astype(np.float32) / SCALE_FACTOR_BANDS),
     "MSK_CLDPRB": lambda arr_uint16: (arr_uint16.astype(np.float32) / SCALE_FACTOR_BANDS),
 }
+
+# Mapping from detailed eco-region names to general categories
+MAPPING_SER_ECO_REGIONS = {
+    'Côtes_et_plateaux_de_la_Manche': 'Centre Nord semi-océanique',
+    'Ardenne_primaire': 'Grand Est semi-continental',
+    'Préalpes_du_Nord': 'Alpes',
+    'Garrigues': 'Méditerranée',
+    'Massif_vosgien_central': 'Vosges',
+    'Premier_plateau_du_Jura': 'Jura',
+    'Piémont_pyrénéen': 'Pyrénées',
+    'Terres_rouges': 'Sud-Ouest océanique',
+    'Corse_occidentale': 'Corse',
+    "Châtaigneraie_du_Centre_et_de_l'Ouest": 'Massif central',
+    'Ouest-Bretagne_et_Nord-Cotentin': 'Grand Ouest cristallin et océanique',
+    'Total': 'Total'
+}
+
+MAPPING_ECO_REGIONS_FR_EN = {
+    "Grand Ouest cristallin et océanique": "Greater Crystalline and Oceanic West",
+    "Centre Nord semi-océanique": "Semi-Oceanic North Center",
+    "Grand Est semi-continental": "Greater Semi-Continental East",
+    "Vosges": "Vosges",
+    "Jura": "Jura",
+    "Sud-Ouest océanique": "Oceanic Southwest",
+    "Massif central": "Central Massif",
+    "Alpes": "Alps",
+    "Pyrénées": "Pyrenees",
+    "Méditerranée": "Mediterranean",
+    "Corse": "Corsica"
+}
+
+# Forest cover ratio by eco-region (percentage of land covered by forest)
+# Based on data from GRECO-Tauxdeboisementmoyen-Dpartementsreprsentatifs-Caractristiquescologiquesdominantes.csv
+FOREST_COVER_RATIO_BY_REGION = {
+    "Greater Crystalline and Oceanic West": 0.20,  # Plaines Atlantiques: 15-25%
+    "Semi-Oceanic North Center": 0.30,  # Bassin Parisien: 25-35%
+    "Greater Semi-Continental East": 0.75,  # Ardenne Primaire: 70-80%
+    "Vosges": 0.75,  # Massif Vosgien Central: 70-80%
+    "Jura": 0.60,  # Jura: 55-65%
+    "Oceanic Southwest": 0.75,  # Landes de Gascogne: 70-80%
+    "Central Massif": 0.49,  # Massif Central: 49%
+    "Alps": 0.45,  # Alpes Internes: 40-50%
+    "Pyrenees": 0.65,  # Pyrénées: 60-70%
+    "Mediterranean": 0.75,  # Cévennes/Alpes Externes du Sud: 70-80%
+    "Corsica": 0.75  # Assuming similar to Mediterranean regions
+}

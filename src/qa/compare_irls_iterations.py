@@ -36,9 +36,9 @@ logging.basicConfig(
 )
 
 # Adjust imports to your actual project structure:
-sys.path.append(str(Path(__file__).parent.parent))  # so we can import from src
-from src.features.inference_feature import WindowFeature
-from src.constants import AVAILABLE_INDICES, TARGET_AMP_RANGE, TARGET_OFFSET_RANGE
+sys.path.append(str(Path(__file__).parent.parent))  # add the src directory to path
+from features.inference_feature import WindowFeature
+from constants import AVAILABLE_INDICES, TARGET_AMP_RANGE, TARGET_OFFSET_RANGE
 
 def calculate_nodata_percentage(arr):
     """Calculate the percentage of NaN values in an array."""
