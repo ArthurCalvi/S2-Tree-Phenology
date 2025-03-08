@@ -66,20 +66,33 @@ def setup_logging(log_file):
 
 def load_data(
     tiles_path: str,
-    ecoregion_path: str
+    ecoregion_path: str,
+    force_crs: str = "EPSG:2154"  # Add parameter to force CRS
 ) -> tuple[gpd.GeoDataFrame, gpd.GeoDataFrame]:
     """
     Loads the tiles GeoDataFrame and the eco-region GeoDataFrame.
     Both will be renamed to English in the 'NomSER' column by the time
     they exit this function.
+    
+    Args:
+        tiles_path: Path to tiles parquet file
+        ecoregion_path: Path to eco-region shapefile
+        force_crs: CRS to force on input data (default: EPSG:2154 Lambert-93)
     """
 
     tiles_gdf = gpd.read_parquet(tiles_path)
     eco_gdf = gpd.read_file(ecoregion_path)
 
-    # Ensure we use the same CRS
-    eco_gdf = eco_gdf.to_crs(tiles_gdf.crs)
-
+    # Force setting CRS to Lambert-93 without reprojection for tiles
+    # This assumes the coordinates are actually Lambert-93 but were incorrectly tagged
+    logging.info(f"Forcing CRS to {force_crs} for tiles dataset without reprojection")
+    tiles_gdf.set_crs(force_crs, allow_override=True, inplace=True)
+    
+    # Ensure eco_gdf has the same CRS
+    if eco_gdf.crs != force_crs:
+        logging.info(f"Converting eco-regions from {eco_gdf.crs} to {force_crs}")
+        eco_gdf = eco_gdf.to_crs(force_crs)
+    
     # 1) Convert ecoregions to "greco" if 'codeser' exists, then dissolve
     if 'codeser' in eco_gdf.columns:
         eco_gdf['greco'] = eco_gdf['codeser'].apply(
@@ -103,12 +116,9 @@ def load_data(
     else:
         logging.debug("No 'NomSER' column found in tiles_gdf. Cannot rename to English.")
 
-    logging.debug(
-        f"AFTER: NomSER in eco_gdf: \n {eco_gdf['NomSER'].unique() if 'NomSER' in eco_gdf.columns else 'NomSER not found'}"
-    )
-    logging.debug(
-        f"AFTER: NomSER in tiles_gdf: \n {tiles_gdf['NomSER'].unique() if 'NomSER' in tiles_gdf.columns else 'NomSER not found'}"
-    )
+    # Verify CRS for debugging
+    logging.debug(f"Final tiles CRS: {tiles_gdf.crs}")
+    logging.debug(f"Final eco-regions CRS: {eco_gdf.crs}")
 
     return tiles_gdf, eco_gdf
 
@@ -168,6 +178,86 @@ def assign_tiles_to_ecoregions(
     tiles_gdf["NomSER"] = joined["NomSER"]
     return tiles_gdf
 
+
+def visualize_reference_region_tiles(
+    reference_region: str,
+    original_tiles: gpd.GeoDataFrame,
+    added_tiles: gpd.GeoDataFrame,
+    ecoregions_gdf: gpd.GeoDataFrame,
+    output_path: str
+) -> str:
+    """
+    Creates a visualization of the reference region showing original filtered tiles
+    and newly added tiles.
+    
+    Args:
+        reference_region: Name of the reference region
+        original_tiles: Original filtered tiles in the reference region
+        added_tiles: Newly added tiles to the reference region
+        ecoregions_gdf: Eco-regions GeoDataFrame
+        output_path: Path to save the visualization
+        
+    Returns:
+        Path to the saved visualization
+    """
+    import matplotlib.pyplot as plt
+    
+    # Create figure and axis
+    fig, ax = plt.subplots(figsize=(12, 10))
+    
+    # Get just the reference region polygon
+    ref_region_poly = ecoregions_gdf[ecoregions_gdf['NomSER'] == reference_region]
+    
+    # Plot the reference region
+    ref_region_poly.plot(
+        ax=ax,
+        color='lightblue',
+        alpha=0.5,
+        edgecolor='blue',
+        linewidth=1
+    )
+    
+    # Plot original filtered tiles
+    original_tiles_in_region = original_tiles[original_tiles['NomSER'] == reference_region]
+    original_tiles_in_region.plot(
+        ax=ax,
+        color='gray',
+        markersize=25,
+        edgecolor='black',
+        linewidth=0.5,
+        alpha=0.7,
+        label='Original filtered tiles'
+    )
+    
+    # Plot newly added tiles
+    if len(added_tiles) > 0:
+        added_tiles.plot(
+            ax=ax,
+            color='red',
+            markersize=25,
+            edgecolor='darkred',
+            linewidth=1,
+            label='Newly added tiles'
+        )
+    
+    # Set title and legend
+    plt.title(f'Tile Selection in Reference Region: {reference_region}')
+    plt.legend(loc='upper right')
+    
+    # Add count information
+    plt.figtext(
+        0.02, 0.02, 
+        f"Original tiles: {len(original_tiles_in_region)} | Newly added tiles: {len(added_tiles)}",
+        fontsize=10, 
+        bbox={"facecolor":"white", "alpha":0.8, "pad":5}
+    )
+    
+    # Save the figure
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    return output_path
 
 def balance_coverage_with_spatial_distribution(
     tiles_gdf: gpd.GeoDataFrame,
@@ -255,7 +345,160 @@ def balance_coverage_with_spatial_distribution(
     
     logging.info(f"Reference eco-region: {reference_region} with density {reference_density:.6f} tiles/km²")
     
-    # Calculate target number of tiles for each region based on reference density and effective forest area
+    # NEW STEP: Add 10 more tiles to the reference region for better spatial coverage
+    logging.info(f"Adding 10 more tiles to reference region {reference_region} for improved spatial coverage")
+    
+    # Initialize selected tiles with the current tiles
+    selected_tiles = tiles_gdf.copy()
+    
+    # Store original tiles in reference region before adding new ones (for visualization)
+    original_ref_tiles = selected_tiles[selected_tiles["NomSER"] == reference_region].copy()
+    
+    # Get candidates for the reference region that are not already selected
+    reference_candidates = all_tiles_gdf[
+        (all_tiles_gdf["NomSER"] == reference_region) & 
+        (~all_tiles_gdf.index.isin(selected_tiles.index))
+    ].copy()
+    
+    # Filter to have at least min_pixels if specified
+    if min_pixels > 0:
+        reference_candidates["effective_pixels"] = reference_candidates["effective_pixels"].fillna(0)
+        reference_candidates = reference_candidates[reference_candidates["effective_pixels"] >= min_pixels]
+    
+    # Add 10 tiles to reference region, maintaining spatial distribution
+    added_to_reference = 0
+    # Create empty GeoDataFrame with geometry column
+    added_ref_tiles = gpd.GeoDataFrame(
+        data=[],
+        columns=['geometry'],
+        geometry='geometry',
+        crs=selected_tiles.crs
+    )
+    
+    with tqdm(total=10, desc=f"Adding tiles to {reference_region}", unit="tile") as pbar:
+        while added_to_reference < 10 and not reference_candidates.empty:
+            # Calculate minimum distance to any already selected tile
+            if len(selected_tiles) > 0:
+                # Use a vectorized approach to calculate distances
+                distances = []
+                for candidate in reference_candidates.itertuples():
+                    # Calculate minimum distance from this candidate to any selected tile
+                    min_dist = float('inf')
+                    for selected in selected_tiles.itertuples():
+                        dist = candidate.geometry.centroid.distance(selected.geometry.centroid)
+                        min_dist = min(min_dist, dist)
+                    distances.append(min_dist)
+                # Use .loc to avoid SettingWithCopyWarning
+                reference_candidates.loc[:, "min_dist"] = distances
+            else:
+                reference_candidates.loc[:, "min_dist"] = float('inf')
+            
+            # Sort by distance (descending) and then by effective pixels (descending)
+            reference_candidates = reference_candidates.sort_values(
+                by=["min_dist", "effective_pixels"], 
+                ascending=[False, False]
+            )
+            
+            # Select the best candidate
+            if len(reference_candidates) > 0:
+                best_candidate = reference_candidates.iloc[0]
+                
+                # Only add if it meets minimum distance requirement or we have relaxed criteria
+                if best_candidate["min_dist"] >= min_distance or len(reference_candidates) <= 1:
+                    use_anyway = (best_candidate["min_dist"] < min_distance) and \
+                                 (added_to_reference < 2) and \
+                                 (len(reference_candidates) <= 1)
+                    
+                    if best_candidate["min_dist"] >= min_distance or use_anyway:
+                        # Add to selected tiles
+                        best_candidate_df = best_candidate.to_frame().T
+                        selected_tiles = pd.concat(
+                            [selected_tiles, best_candidate_df],
+                            ignore_index=True
+                        )
+                        # Also add to our tracking of newly added reference tiles 
+                        added_ref_tiles = pd.concat(
+                            [added_ref_tiles, best_candidate_df],
+                            ignore_index=True
+                        )
+                        added_to_reference += 1
+                        pbar.update(1)
+                        
+                        dist_msg = f"{best_candidate['min_dist']:.1f}m from nearest" if \
+                                    best_candidate["min_dist"] < float('inf') else "no nearby tiles"
+                        logging.debug(f"Added tile to reference region with {best_candidate['effective_pixels']:.1f} pixels, {dist_msg}")
+                
+                # Remove this candidate
+                reference_candidates = reference_candidates.iloc[1:]
+                
+                # If we can't find tiles that meet distance requirement, try with reduced distance
+                if added_to_reference < 10 and reference_candidates.empty:
+                    relaxed_distance = min_distance / 2
+                    logging.debug(f"Could not add all 10 tiles with {min_distance}m separation. Trying with {relaxed_distance}m")
+                    
+                    # Get candidates again
+                    reference_candidates = all_tiles_gdf[
+                        (all_tiles_gdf["NomSER"] == reference_region) & 
+                        (~all_tiles_gdf.index.isin(selected_tiles.index))
+                    ].copy()
+                    
+                    if min_pixels > 0:
+                        reference_candidates["effective_pixels"] = reference_candidates["effective_pixels"].fillna(0)
+                        reference_candidates = reference_candidates[reference_candidates["effective_pixels"] >= min_pixels]
+                    
+                    # Calculate distances again with relaxed criteria
+                    if len(selected_tiles) > 0:
+                        distances = []
+                        for candidate in reference_candidates.itertuples():
+                            # Use vectorized distance calculation  
+                            all_distances = [candidate.geometry.centroid.distance(selected.geometry.centroid) 
+                                            for selected in selected_tiles.itertuples()]
+                            min_dist = min(all_distances) if all_distances else float('inf')
+                            distances.append(min_dist)
+                        reference_candidates.loc[:, "min_dist"] = distances
+                        reference_candidates = reference_candidates[reference_candidates["min_dist"] >= relaxed_distance]
+            else:
+                break
+    
+    logging.info(f"Added {added_to_reference} tiles to reference region {reference_region}")
+    
+    # Create and save visualization of reference region tiles
+    if added_to_reference > 0:
+        # Create directory for visualizations if it doesn't exist
+        vis_dir = "results/visualizations"
+        os.makedirs(vis_dir, exist_ok=True)
+        
+        # Generate timestamp for unique filename
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        vis_path = f"{vis_dir}/reference_region_{reference_region}_{timestamp}.png"
+        
+        try:
+            # Create the visualization
+            logging.info(f"Creating visualization of reference region {reference_region}...")
+            vis_file = visualize_reference_region_tiles(
+                reference_region,
+                original_ref_tiles,
+                added_ref_tiles,
+                ecoregions_gdf,
+                vis_path
+            )
+            logging.info(f"Visualization saved to: {vis_file}")
+        except Exception as e:
+            logging.error(f"Failed to create reference region visualization: {str(e)}")
+    
+    # Recalculate reference density with additional tiles
+    updated_reference_count = selected_tiles[selected_tiles["NomSER"] == reference_region].shape[0]
+    
+    # Get effective forest area for reference region
+    region_en = MAPPING_ECO_REGIONS_FR_EN.get(reference_region, reference_region)
+    forest_ratio = FOREST_COVER_RATIO_BY_REGION.get(region_en, 0.5)
+    effective_forest_area = eco_areas[reference_region] * forest_ratio
+    
+    # Update reference density
+    updated_reference_density = updated_reference_count / effective_forest_area if effective_forest_area > 0 else 0
+    logging.info(f"Updated reference density: {updated_reference_density:.6f} tiles/km² ({updated_reference_count} tiles)")
+    
+    # Calculate target number of tiles for each region based on updated reference density and effective forest area
     target_counts = {}
     additional_needed = {}
     effective_forest_areas = {}
@@ -283,10 +526,11 @@ def balance_coverage_with_spatial_distribution(
         effective_forest_areas[region] = effective_forest_area
         forest_ratios[region] = forest_ratio
         
-        # Calculate target based on reference density applied to effective forest area
-        target = int(reference_density * effective_forest_area)
+        # Calculate target based on updated reference density applied to effective forest area
+        target = int(updated_reference_density * effective_forest_area)
         
-        current = region_counts.get(region, 0)
+        # Get current count from the updated selected_tiles dataframe
+        current = selected_tiles[selected_tiles["NomSER"] == region].shape[0]
         needed = max(0, target - current)
         
         target_counts[region] = target
@@ -316,7 +560,7 @@ def balance_coverage_with_spatial_distribution(
         area = eco_areas.get(region, 0)
         forest_ratio = forest_ratios.get(region, 0)
         effective_area = effective_forest_areas.get(region, 0)
-        current = region_counts.get(region, 0)
+        current = selected_tiles[selected_tiles["NomSER"] == region].shape[0]
         target = target_counts.get(region, 0)
         needed = additional_needed.get(region, 0)
         
@@ -331,12 +575,13 @@ def balance_coverage_with_spatial_distribution(
         ])
     
     # Add a total row
+    all_current = sum(selected_tiles[selected_tiles["NomSER"] == region].shape[0] for region in sorted_regions)
     table_data.append([
         "TOTAL", 
         f"{sum(eco_areas.values()):.2f}", 
         "-", 
         f"{sum(effective_forest_areas.values()):.2f}", 
-        sum(region_counts.values), 
+        all_current, 
         sum(target_counts.values()), 
         sum(additional_needed.values())
     ])
@@ -366,9 +611,7 @@ def balance_coverage_with_spatial_distribution(
     
     logging.info(f"\nTotal additional tiles needed: {sum(additional_needed.values())}")
 
-    # Prepare for spatial selection
-    selected_tiles = tiles_gdf.copy()
-    
+    # Prepare for spatial selection of remaining regions
     # Sort remaining tiles by in-situ pixel count (highest first)
     # Use the full set of tiles for additional candidates
     additional_candidates = all_tiles_gdf.copy()
@@ -381,7 +624,7 @@ def balance_coverage_with_spatial_distribution(
     
     # We'll add tiles to regions that need them, starting from regions with lowest current density
     regions_to_fill = [r for r, n in additional_needed.items() if n > 0]
-    regions_to_fill.sort(key=lambda r: region_densities.get(r, 0))
+    regions_to_fill.sort(key=lambda r: selected_tiles[selected_tiles["NomSER"] == r].shape[0] / effective_forest_areas.get(r, 1))
     
     # Count total tiles needed
     total_needed = sum(additional_needed.values())
@@ -423,10 +666,10 @@ def balance_coverage_with_spatial_distribution(
                 if len(selected_tiles) > 0:
                     # Use a vectorized approach to calculate distances between each candidate and all selected tiles
                     distances = []
-                    for _, candidate in candidates.iterrows():
+                    for candidate in candidates.itertuples():
                         # Calculate minimum distance from this candidate to any selected tile
                         min_dist = float('inf')
-                        for _, selected in selected_tiles.iterrows():
+                        for selected in selected_tiles.itertuples():
                             dist = candidate.geometry.centroid.distance(selected.geometry.centroid)
                             min_dist = min(min_dist, dist)
                         distances.append(min_dist)
@@ -483,8 +726,11 @@ def balance_coverage_with_spatial_distribution(
                         # Calculate distances
                         if len(selected_tiles) > 0:
                             distances = []
-                            for _, candidate in candidates.iterrows():
-                                min_dist = min(selected_tiles.geometry.centroid.distance(candidate.geometry.centroid))
+                            for candidate in candidates.itertuples():
+                                # Use vectorized distance calculation  
+                                all_distances = [candidate.geometry.centroid.distance(selected.geometry.centroid) 
+                                                for selected in selected_tiles.itertuples()]
+                                min_dist = min(all_distances) if all_distances else float('inf')
                                 distances.append(min_dist)
                             candidates.loc[:, "min_dist"] = distances
                         else:
@@ -571,52 +817,89 @@ def create_visualization(
         cmap = plt.cm.get_cmap('Pastel1', len(eco_regions))
     
     # Plot eco-regions with a colormap
-    eco_regions.plot(
+    eco_regions_plot = eco_regions.plot(
         column='NomSER',
         ax=ax,
         alpha=0.6,
         cmap=cmap,
-        legend=True,
-        legend_kwds={'loc': 'upper left', 'bbox_to_anchor': (1, 1), 'fontsize': 8}
+        edgecolor='gray',
+        linewidth=0.5
     )
     
-    # Plot all tiles as small dots
+    # Create a dictionary to map eco-region names to colors
+    unique_regions = eco_regions['NomSER'].unique()
+    if hasattr(mpl, 'colormaps'):
+        region_colors = {region: colors[i] for i, region in enumerate(unique_regions)}
+    else:
+        region_colors = {region: cmap(i) for i, region in enumerate(unique_regions)}
+    
+    # Plot all tiles as small dots with edges for better visibility
     if len(all_tiles) > 0:
         all_tiles.plot(
             ax=ax,
             color='lightgray',
-            markersize=1,
-            alpha=0.2
+            markersize=2,
+            alpha=0.3,
+            edgecolor='gray',
+            linewidth=0.2
         )
     
-    # Plot filtered tiles (high quality)
-    if len(filtered_tiles) > 0:
-        filtered_tiles.plot(
-            ax=ax,
-            color='blue',
-            markersize=5,
-            alpha=0.5
-        )
+    # We're skipping the filtered tiles as requested
     
-    # Plot selected tiles
+    # Plot selected tiles with edges for better visibility
     selected_tiles.plot(
         ax=ax,
         color='red',
-        markersize=10
+        markersize=10,
+        edgecolor='black',
+        linewidth=0.5
     )
     
     # Create manual legend for tile types
     legend_elements = [
-        mpatches.Patch(color='lightgray', alpha=0.2, label=f'All tiles ({len(all_tiles)})'),
-        mpatches.Patch(color='blue', alpha=0.5, label=f'Filtered tiles ({len(filtered_tiles)})'),
-        mpatches.Patch(color='red', label=f'Selected tiles ({len(selected_tiles)})')
+        mpatches.Patch(color='lightgray', alpha=0.3, edgecolor='gray', label=f'All tiles ({len(all_tiles)})'),
+        mpatches.Patch(color='red', edgecolor='black', label=f'Selected tiles ({len(selected_tiles)})')
     ]
     
-    # Add second legend for tile types
+    # Add eco-region legend patches
+    eco_region_patches = []
+    for region in sorted(unique_regions):
+        if region is not None:
+            color = region_colors.get(region, 'gray')
+            eco_region_patches.append(
+                mpatches.Patch(color=color, alpha=0.6, edgecolor='gray', 
+                              label=f'{region}')
+            )
+    
+    # Add tile type legend
     ax.legend(handles=legend_elements, loc='lower right', title="Tile Selection")
     
-    # Set title and adjust layout
+    # Add eco-region legend to the top right
+    if eco_region_patches:
+        # Create second legend for eco-regions
+        eco_legend = plt.legend(
+            handles=eco_region_patches, 
+            loc='upper left', 
+            bbox_to_anchor=(1, 1), 
+            title="Eco-Regions", 
+            fontsize=8
+        )
+        # Add the second legend manually
+        ax.add_artist(eco_legend)
+    
+    # Set title and remove axis ticks for cleaner appearance
     plt.title('Selected Tiles by Eco-Region')
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
+    
+    # Remove axis borders for an even cleaner look
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['left'].set_visible(False)
+    
     plt.tight_layout()
     
     # Save visualization
@@ -647,15 +930,15 @@ def generate_pdf_report(
     Returns:
         Path to the saved PDF report
     """
-    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.lib.pagesizes import letter
     from reportlab.lib import colors
     from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
     from datetime import datetime
     
-    # Create document
-    doc = SimpleDocTemplate(output_path, pagesize=landscape(letter))
+    # Create document with portrait orientation
+    doc = SimpleDocTemplate(output_path, pagesize=letter)
     styles = getSampleStyleSheet()
     
     # Create title style
@@ -702,7 +985,7 @@ def generate_pdf_report(
         ["Minimum in-situ pixels threshold", str(min_pixels)]
     ]
     
-    metrics_table = Table(metrics_data, colWidths=[4*inch, 1.5*inch])
+    metrics_table = Table(metrics_data, colWidths=[3*inch, 1.5*inch])
     metrics_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
@@ -719,57 +1002,69 @@ def generate_pdf_report(
     
     # Calculate distribution by eco-region
     selected_by_region = selected_tiles.groupby('NomSER').size()
-    filtered_by_region = filtered_tiles.groupby('NomSER').size()
     
-    # Create distribution table
-    elements.append(Paragraph("Distribution by Eco-Region", styles['Heading2']))
-    elements.append(Spacer(1, 0.1*inch))
-    
-    # Calculate eco-region areas
+    # Calculate eco-region areas and forest coverage
     eco_regions['area_km2'] = eco_regions.geometry.area / 1_000_000
     eco_areas = eco_regions.set_index('NomSER')['area_km2'].to_dict()
     
-    # Prepare data for distribution table
-    distribution_data = [["Eco-Region", "Area (km²)", "Filtered Tiles", "Selected Tiles", "% Selected", "Tiles per 1000 km²"]]
+    # Prepare the simplified eco-region distribution table
+    elements.append(Paragraph("Eco-Region Distribution", styles['Heading2']))
+    elements.append(Spacer(1, 0.1*inch))
+    
+    # Prepare data for simplified distribution table
+    distribution_data = [["Eco-Region", "Selected Tiles", "Effective Forest Area (km²)", "Tiles per 1000 km² (forest)"]]
     
     for region in sorted(eco_areas.keys(), key=lambda x: str(x) if x is not None else ""):
         if region is None:
             continue
+            
         area = eco_areas.get(region, 0)
-        filtered_count = filtered_by_region.get(region, 0)
         selected_count = selected_by_region.get(region, 0)
         
-        # Calculate percentage and density
-        percent = (selected_count / filtered_count * 100) if filtered_count > 0 else 0
-        density = (selected_count / area) * 1000 if area > 0 else 0
+        # Convert region name to English for accessing forest cover ratio
+        region_en = MAPPING_ECO_REGIONS_FR_EN.get(region, region)
+        
+        # Get forest cover ratio for this region (default to 0.5 if not found)
+        forest_ratio = FOREST_COVER_RATIO_BY_REGION.get(region_en, 0.5)
+        
+        # Calculate effective forest area
+        effective_forest_area = area * forest_ratio
+        
+        # Calculate density per 1000 km² of effective forest area
+        forest_density = (selected_count / effective_forest_area) * 1000 if effective_forest_area > 0 else 0
         
         distribution_data.append([
             str(region),
-            f"{area:.2f}",
-            str(filtered_count),
             str(selected_count),
-            f"{percent:.1f}%",
-            f"{density:.2f}"
+            f"{effective_forest_area:.2f}",
+            f"{forest_density:.2f}"
         ])
     
     # Add total row
     total_area = sum(area for region, area in eco_areas.items() if region is not None)
-    total_filtered = filtered_by_region.sum()
     total_selected = selected_by_region.sum()
-    total_percent = (total_selected / total_filtered * 100) if total_filtered > 0 else 0
-    total_density = (total_selected / total_area) * 1000 if total_area > 0 else 0
+    
+    # Calculate total effective forest area
+    total_effective_forest = 0
+    for region in eco_areas.keys():
+        if region is None:
+            continue
+        area = eco_areas.get(region, 0)
+        region_en = MAPPING_ECO_REGIONS_FR_EN.get(region, region)
+        forest_ratio = FOREST_COVER_RATIO_BY_REGION.get(region_en, 0.5)
+        total_effective_forest += area * forest_ratio
+    
+    total_forest_density = (total_selected / total_effective_forest) * 1000 if total_effective_forest > 0 else 0
     
     distribution_data.append([
         "TOTAL",
-        f"{total_area:.2f}",
-        str(total_filtered),
         str(total_selected),
-        f"{total_percent:.1f}%",
-        f"{total_density:.2f}"
+        f"{total_effective_forest:.2f}",
+        f"{total_forest_density:.2f}"
     ])
     
     # Create table
-    col_widths = [1.5*inch, 1*inch, 1*inch, 1*inch, 1*inch, 1.2*inch]
+    col_widths = [1.7*inch, 1.2*inch, 1.8*inch, 1.8*inch]
     distribution_table = Table(distribution_data, colWidths=col_widths)
     distribution_table.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -790,8 +1085,9 @@ def generate_pdf_report(
     elements.append(Spacer(1, 0.1*inch))
     
     img = Image(visualization_path)
-    img.drawWidth = 9*inch
-    img.drawHeight = 6*inch
+    available_width = 7.5*inch  # Width for the image in portrait mode
+    img.drawWidth = available_width
+    img.drawHeight = (available_width / img.imageWidth) * img.imageHeight  # Maintain aspect ratio
     elements.append(img)
     
     # Add caption
@@ -869,7 +1165,11 @@ def main():
 
     # 1. Load data
     logging.info("Loading data...")
-    tiles_gdf, eco_gdf = load_data(args.tiles, args.ecoregions)
+    tiles_gdf, eco_gdf = load_data(
+        args.tiles, 
+        args.ecoregions,
+        force_crs="EPSG:2154"  # Force Lambert-93 CRS
+    )
     logging.info(f"Loaded {len(tiles_gdf)} total tiles and {len(eco_gdf)} eco-regions")
 
     # 2. Filter tiles by in-situ coverage
@@ -938,8 +1238,8 @@ def main():
     
     logging.info(f"Distribution: {', '.join(final_eco_distribution)}")
     
-    # 5. Create output directory if it doesn't exist
-    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    # Save the final selection
+    logging.info(f"Saving final selection to {args.output}")
     
     # Remove non-serializable columns
     columns_to_drop = ["centroid", "min_dist"]
@@ -947,22 +1247,63 @@ def main():
         if col in final_tiles.columns:
             final_tiles = final_tiles.drop(columns=[col])
     
+    # Make sure the CRS is explicitly set to EPSG:2154 before saving
+    if final_tiles.crs is None or final_tiles.crs != "EPSG:2154":
+        logging.info("Setting CRS to EPSG:2154 (Lambert-93) before saving")
+        final_tiles.set_crs("EPSG:2154", inplace=True)
+    
     # Display the head of the final dataset
     logging.info("\nSample of selected tiles:")
     print(final_tiles.head().to_string())
     
-    # 6. Save final selection
-    logging.info(f"Saving final selection to {args.output}")
+    # Create output directory if it doesn't exist
+    os.makedirs(os.path.dirname(args.output), exist_ok=True)
     
-    # Convert geometry to WKT format for parquet compatibility
-    final_tiles_for_parquet = final_tiles.copy()
+    # Get output extension
+    out_ext = os.path.splitext(args.output)[1].lower()
     
-    # Convert geometry column to WKT strings for parquet compatibility
-    if 'geometry' in final_tiles_for_parquet.columns:
-        final_tiles_for_parquet['geometry'] = final_tiles_for_parquet['geometry'].apply(lambda geom: geom.wkt if geom else None)
+    if out_ext == '.parquet':
+        # Save directly to parquet (modern GeoPandas handles geometry columns correctly)
+        logging.info("Saving to parquet format with proper geometry serialization")
+        try:
+            # Try saving with to_parquet
+            final_tiles.to_parquet(args.output, index=False)
+            
+            # Verify the saved file by reading it back
+            try:
+                logging.info("Verifying the saved parquet file...")
+                test_read = gpd.read_parquet(args.output)
+                logging.info(f"Successfully verified parquet file. Contains {len(test_read)} tiles.")
+                
+                # Additional check - count by region
+                if 'NomSER' in test_read.columns:
+                    region_counts = test_read.groupby('NomSER').size()
+                    logging.info(f"Region counts in verified parquet: {dict(region_counts)}")
+            except Exception as verify_err:
+                logging.error(f"Error verifying parquet file: {verify_err}")
+                logging.warning("Saving backup GeoJSON file due to verification failure")
+                # Save backup GeoJSON
+                backup_geojson = args.output.replace('.parquet', '_backup.geojson')
+                final_tiles.to_file(backup_geojson, driver="GeoJSON")
+                logging.info(f"Backup GeoJSON saved to {backup_geojson}")
+        except Exception as e:
+            logging.error(f"Error saving to parquet: {e}")
+            # Save as GeoJSON instead
+            backup_file = args.output.replace('.parquet', '.geojson')
+            logging.warning(f"Saving as GeoJSON instead to {backup_file}")
+            final_tiles.to_file(backup_file, driver="GeoJSON")
+            logging.info(f"GeoJSON backup saved with {len(final_tiles)} tiles")
+            
+    elif out_ext in ['.geojson', '.json']:
+        # Save to GeoJSON with explicit CRS
+        logging.info("Saving to GeoJSON format")
+        final_tiles.to_file(args.output, driver="GeoJSON")
+    else:
+        # Default to GPKG if extension is something else
+        logging.info(f"Unrecognized extension '{out_ext}', defaulting to GeoPackage format")
+        final_tiles.to_file(args.output.replace(out_ext, '.gpkg'), driver="GPKG")
     
-    # Save to parquet
-    final_tiles_for_parquet.to_parquet(args.output, index=False)
+    logging.info(f"Final dataset has {len(final_tiles)} tiles.")
     
     # 7. Create visualization and report
     if args.report:
