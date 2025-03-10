@@ -71,8 +71,14 @@ def main():
     parser.add_argument(
         "--buffer",
         type=float,
-        default=100.0,
+        default=50.0,
         help="Buffer in meters for excluding BD Forêt polygons near in-situ polygons."
+    )
+    parser.add_argument(
+        "--negative_buffer",
+        type=float,
+        default=50.0,
+        help="Negative buffer in meters for BD Forêt polygons to prevent bad annotations on forest edges."
     )
     parser.add_argument(
         "--loglevel",
@@ -339,6 +345,7 @@ def main():
             phenology_mismatch_count = 0
             buffer_exclusion_count = 0
             empty_geometry_count = 0
+            negative_buffer_empty_count = 0
 
             # If no in-situ polygons in this tile, accept all BD Forêt polygons
             if len(clipped_in_situ) == 0:
@@ -393,11 +400,19 @@ def main():
                             phenology_mismatch_count += 1
                             continue
                         
+                        # Apply negative buffer to BD Forêt polygon
+                        negatively_buffered_bd_geom = bd_geom.buffer(-args.negative_buffer)
+                        if negatively_buffered_bd_geom.is_empty:
+                            # Skip if negative buffer makes polygon disappear
+                            negative_buffer_empty_count += 1
+                            logging.debug(f"Tile {tile_id}: BD Forêt polygon ({bd_genus} {bd_species}) became empty after negative buffer - excluded")
+                            continue
+                        
                         # Check buffer constraint - is this polygon entirely outside the buffer?
                         if in_situ_buffered and not in_situ_buffered.is_empty:
-                            if bd_geom.intersects(in_situ_buffered):
+                            if negatively_buffered_bd_geom.intersects(in_situ_buffered):
                                 # Need to perform the difference operation
-                                diff_geom = bd_geom.difference(in_situ_buffered)
+                                diff_geom = negatively_buffered_bd_geom.difference(in_situ_buffered)
                                 if diff_geom.is_empty:
                                     # Polygon completely within buffer - skip
                                     buffer_exclusion_count += 1
@@ -407,6 +422,12 @@ def main():
                                     # Update the geometry in the original DataFrame
                                     clipped_bdforet.loc[bd_row.Index, 'geometry'] = diff_geom
                                     logging.debug(f"Tile {tile_id}: BD Forêt polygon ({bd_genus} {bd_species}) partially within buffer - trimmed and accepted")
+                            else:
+                                # Not intersecting with buffer, but still need to update with negatively buffered geometry
+                                clipped_bdforet.loc[bd_row.Index, 'geometry'] = negatively_buffered_bd_geom
+                        else:
+                            # No in_situ_buffered geometry, just update with negatively buffered geometry
+                            clipped_bdforet.loc[bd_row.Index, 'geometry'] = negatively_buffered_bd_geom
                         
                         # All checks passed, accept this polygon
                         bdforet_accepted.append(bd_row.Index)
@@ -422,7 +443,8 @@ def main():
                          f"Rejected: {len(clipped_bdforet) - len(bdforet_accepted)} "
                          f"(Phenology mismatch: {phenology_mismatch_count}, "
                          f"Buffer exclusion: {buffer_exclusion_count}, "
-                         f"Empty geometry: {empty_geometry_count})")
+                         f"Empty geometry: {empty_geometry_count}, "
+                         f"Negative buffer empty: {negative_buffer_empty_count})")
 
             # Build rows from accepted BD Forêt polygons
             accepted_bdforet = clipped_bdforet.loc[bdforet_accepted].copy() if bdforet_accepted else clipped_bdforet.head(0)
@@ -576,23 +598,22 @@ def calculate_region_metrics(gdf):
         metrics["effective_pixels"][source] = source_gdf["effective_pixels"].sum()
     metrics["effective_pixels"]["total"] = gdf["effective_pixels"].sum()
     
-    # Phenology distribution
+    # Phenology distribution (by effective pixels)
     if "phenology" in gdf.columns:
-        metrics["phenology"] = gdf["phenology"].value_counts().to_dict()
+        metrics["phenology"] = {}
+        for phen in gdf["phenology"].unique():
+            phen_pixels = gdf[gdf["phenology"] == phen]["effective_pixels"].sum()
+            metrics["phenology"][phen] = phen_pixels
     
-    # Genus distribution (top 10)
+    # Genus distribution (top 10 by effective pixels)
     if "genus" in gdf.columns:
-        metrics["genus"] = gdf["genus"].value_counts().nlargest(10).to_dict()
+        genus_pixels = gdf.groupby("genus")["effective_pixels"].sum()
+        metrics["genus"] = genus_pixels.nlargest(10).to_dict()
     
-    # Species distribution (top 10)
+    # Species distribution (top 10 by effective pixels)
     if "species" in gdf.columns:
-        metrics["species"] = gdf["species"].value_counts().nlargest(10).to_dict()
-    
-    # Count by source
-    metrics["count"] = {}
-    for source in ["in-situ", "bdforet"]:
-        metrics["count"][source] = len(gdf[gdf["source"] == source])
-    metrics["count"]["total"] = len(gdf)
+        species_pixels = gdf.groupby("species")["effective_pixels"].sum()
+        metrics["species"] = species_pixels.nlargest(10).to_dict()
     
     return metrics
 
@@ -601,7 +622,7 @@ def create_metrics_page(metrics, title, pdf):
     plt.figure(figsize=(11.7, 8.3))  # A4 landscape
     
     # Create a grid for organizing plots
-    gs = gridspec.GridSpec(2, 3)
+    gs = gridspec.GridSpec(2, 2)
     
     # Title
     plt.suptitle(title, fontsize=16, fontweight='bold', y=0.98)
@@ -615,47 +636,42 @@ def create_metrics_page(metrics, title, pdf):
     ax1.set_ylabel("Number of Effective Pixels (Millions)")
     plt.setp(ax1.get_xticklabels(), rotation=45, ha='right')
     
-    # Count by source
-    ax2 = plt.subplot(gs[0, 1])
-    sources = list(metrics["count"].keys())
-    values = list(metrics["count"].values())
-    ax2.bar(sources, values)
-    ax2.set_title("Polygon Count by Source")
-    ax2.set_ylabel("Number of Polygons")
-    plt.setp(ax2.get_xticklabels(), rotation=45, ha='right')
-    
-    # Phenology distribution
+    # Phenology distribution (by effective pixels)
     if "phenology" in metrics:
-        ax3 = plt.subplot(gs[0, 2])
+        ax2 = plt.subplot(gs[0, 1])
         labels = list(metrics["phenology"].keys())
         sizes = list(metrics["phenology"].values())
-        ax3.pie(sizes, labels=None, autopct='%1.1f%%', startangle=90)
-        ax3.set_title("Phenology Distribution")
-        ax3.legend(labels, loc="center left", bbox_to_anchor=(1, 0.5))
+        total = sum(sizes)
+        # Only create pie chart if there's data
+        if total > 0:
+            ax2.pie([s/total for s in sizes], labels=None, autopct='%1.1f%%', startangle=90)
+            ax2.set_title("Phenology Distribution (by Effective Pixels)")
+            if len(labels) > 0:
+                ax2.legend(labels, loc="center left", bbox_to_anchor=(1, 0.5))
     
-    # Genus distribution (horizontal bar)
+    # Genus distribution (horizontal bar) by effective pixels
     if "genus" in metrics:
-        ax4 = plt.subplot(gs[1, 0:2])
+        ax3 = plt.subplot(gs[1, 0])
         genus_data = sorted(metrics["genus"].items(), key=lambda x: x[1], reverse=True)
         labels = [x[0] for x in genus_data]
-        values = [x[1] for x in genus_data]
+        values = [x[1] / 1000000 for x in genus_data]  # Convert to millions
         y_pos = np.arange(len(labels))
-        ax4.barh(y_pos, values)
-        ax4.set_yticks(y_pos)
-        ax4.set_yticklabels(labels)
-        ax4.invert_yaxis()  # labels read top-to-bottom
-        ax4.set_title("Top Genera Distribution")
-        ax4.set_xlabel("Count")
+        ax3.barh(y_pos, values)
+        ax3.set_yticks(y_pos)
+        ax3.set_yticklabels(labels)
+        ax3.invert_yaxis()  # labels read top-to-bottom
+        ax3.set_title("Top Genera (by Effective Pixels)")
+        ax3.set_xlabel("Effective Pixels (Millions)")
     
     # Species distribution (text only due to potentially long names)
     if "species" in metrics:
-        ax5 = plt.subplot(gs[1, 2])
-        ax5.axis('off')
+        ax4 = plt.subplot(gs[1, 1])
+        ax4.axis('off')
         species_data = sorted(metrics["species"].items(), key=lambda x: x[1], reverse=True)
-        species_text = "Top Species Distribution:\n\n"
+        species_text = "Top Species (by Effective Pixels):\n\n"
         for species, count in species_data:
-            species_text += f"{species}: {count}\n"
-        ax5.text(0, 0.95, species_text, verticalalignment='top')
+            species_text += f"{species}: {count/1000000:.2f}M pixels\n"
+        ax4.text(0, 0.95, species_text, verticalalignment='top')
     
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     pdf.savefig()
@@ -702,7 +718,7 @@ def create_comparative_page(metrics, pdf):
     # Add heatmap page for phenology distribution by region
     if all("phenology" in metrics["regions"][r] for r in regions):
         plt.figure(figsize=(11.7, 8.3))  # A4 landscape
-        plt.suptitle("Phenology Distribution by Region", fontsize=16, fontweight='bold', y=0.98)
+        plt.suptitle("Phenology Distribution by Region (Effective Pixels)", fontsize=16, fontweight='bold', y=0.98)
         
         # Collect all phenology types
         all_phenology = set()
@@ -715,13 +731,15 @@ def create_comparative_page(metrics, pdf):
         for r in regions:
             row = []
             for phen in all_phenology:
-                row.append(metrics["regions"][r]["phenology"].get(phen, 0))
+                # Get pixels in millions
+                pixel_count = metrics["regions"][r]["phenology"].get(phen, 0) / 1000000
+                row.append(pixel_count)
             heatmap_data.append(row)
         
         ax = plt.subplot(111)
-        sns.heatmap(heatmap_data, annot=True, fmt="d", cmap="YlGnBu", 
+        sns.heatmap(heatmap_data, annot=True, fmt=".2f", cmap="YlGnBu", 
                    xticklabels=all_phenology, yticklabels=regions, ax=ax)
-        ax.set_title("Phenology Count by Region")
+        ax.set_title("Effective Pixels (Millions) by Phenology and Region")
         plt.tight_layout(rect=[0, 0, 1, 0.95])
         pdf.savefig()
         plt.close()
