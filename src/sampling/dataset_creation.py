@@ -35,6 +35,7 @@ import matplotlib.gridspec as gridspec
 from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 import seaborn as sns
+import contextily as ctx  # Add contextily import for basemaps
 
 # For intersection/difference we might want to allow multi-geometry:
 import warnings
@@ -130,15 +131,42 @@ def main():
     log_file = f"logs/dataset_creation_{timestamp}.log"
     
     # Configure logging to both console and file
-    logging.basicConfig(
-        level=numeric_level,
-        format="%(asctime)s [%(levelname)s] %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-        handlers=[
-            logging.FileHandler(log_file),
-            logging.StreamHandler(sys.stdout)
-        ]
-    )
+    # File handler gets all logs at the specified level
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setLevel(numeric_level)
+    
+    # Console handler also gets all logs at the specified level
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(numeric_level)
+    
+    # Set formatter for both handlers
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+    file_handler.setFormatter(formatter)
+    console_handler.setFormatter(formatter)
+    
+    # Configure the root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(numeric_level)
+    
+    # Clear existing handlers to avoid duplication
+    if root_logger.handlers:
+        root_logger.handlers.clear()
+    
+    # Add handlers to root logger
+    root_logger.addHandler(file_handler)
+    root_logger.addHandler(console_handler)
+    
+    # Set specific levels for external libraries to reduce noise
+    logging.getLogger('rasterio').setLevel(logging.WARNING)
+    logging.getLogger('fiona').setLevel(logging.WARNING)
+    logging.getLogger('geopandas').setLevel(logging.WARNING)
+    logging.getLogger('matplotlib').setLevel(logging.WARNING)
+    logging.getLogger('shapely').setLevel(logging.WARNING)
+    logging.getLogger('PIL').setLevel(logging.WARNING)
+    
+    # Set GDAL's specific log level to WARNING only
+    os.environ['CPL_DEBUG'] = 'OFF'  # Turn off GDAL debug messages
+    os.environ['GDAL_LOG_LEVEL'] = 'WARNING'  # Set GDAL log level
     
     logging.info(f"Logging to {log_file}")
 
@@ -577,14 +605,17 @@ def generate_report(gdf, report_path):
         pdf.savefig()
         plt.close()
         
-        # Overall metrics page
+        # Overall metrics page followed by overall map
         create_metrics_page(metrics["overall"], "Overall Metrics", pdf)
+        create_region_map(gdf, "All Regions", pdf)
         
-        # Region metrics pages
+        # Region metrics pages - each region's metrics page followed by its map
         for region in regions:
+            region_gdf = gdf[gdf["NomSER"] == region]
             create_metrics_page(metrics["regions"][region], f"Region: {region}", pdf)
+            create_region_map(region_gdf, f"Region: {region}", pdf)
             
-        # Comparative page for effective pixels
+        # Comparative pages at the end
         create_comparative_page(metrics, pdf)
 
 def calculate_region_metrics(gdf):
@@ -602,8 +633,24 @@ def calculate_region_metrics(gdf):
     if "phenology" in gdf.columns:
         metrics["phenology"] = {}
         for phen in gdf["phenology"].unique():
-            phen_pixels = gdf[gdf["phenology"] == phen]["effective_pixels"].sum()
+            phen_gdf = gdf[gdf["phenology"] == phen]
+            phen_pixels = phen_gdf["effective_pixels"].sum()
             metrics["phenology"][phen] = phen_pixels
+            
+            # Log phenology distribution details
+            total_species_for_phen = phen_gdf["species"].nunique()
+            top_species_for_phen = phen_gdf.groupby("species")["effective_pixels"].sum().nlargest(3)
+            logging.debug(f"Phenology '{phen}': {phen_pixels/1000000:.2f}M pixels, {total_species_for_phen} species")
+            for sp, px in top_species_for_phen.items():
+                logging.debug(f"  - {sp}: {px/1000000:.2f}M pixels ({px/phen_pixels*100:.1f}% of {phen})")
+    
+    # Verify phenology totals match overall total
+    if "phenology" in metrics:
+        pheno_total = sum(metrics["phenology"].values())
+        total_pixels = metrics["effective_pixels"]["total"]
+        if abs(pheno_total - total_pixels) > 0.1:  # small tolerance for floating point
+            logging.warning(f"Phenology total ({pheno_total}) doesn't match overall total ({total_pixels})")
+            logging.warning(f"Difference: {pheno_total - total_pixels} pixels")
     
     # Genus distribution (top 10 by effective pixels)
     if "genus" in gdf.columns:
@@ -611,9 +658,22 @@ def calculate_region_metrics(gdf):
         metrics["genus"] = genus_pixels.nlargest(10).to_dict()
     
     # Species distribution (top 10 by effective pixels)
-    if "species" in gdf.columns:
+    if "species" in gdf.columns and "phenology" in gdf.columns:
+        # Group by both species and phenology
+        species_pheno_pixels = gdf.groupby(["species", "phenology"])["effective_pixels"].sum().reset_index()
+        # Get top 10 species by total pixels
+        top_species = gdf.groupby("species")["effective_pixels"].sum().nlargest(10).index
+        # Filter to only include top species
+        species_pheno_filtered = species_pheno_pixels[species_pheno_pixels["species"].isin(top_species)]
+        # Create dictionary with species and phenology info
+        metrics["species_with_pheno"] = species_pheno_filtered.values.tolist()
+        # Also keep the original species metrics
         species_pixels = gdf.groupby("species")["effective_pixels"].sum()
         metrics["species"] = species_pixels.nlargest(10).to_dict()
+        
+        # Add extra debugging for top species phenology distribution
+        top_species_total = species_pixels.nlargest(10).sum()
+        logging.debug(f"Top 10 species represent {top_species_total/total_pixels*100:.1f}% of total effective pixels")
     
     return metrics
 
@@ -635,6 +695,8 @@ def create_metrics_page(metrics, title, pdf):
     ax1.set_title("Effective Pixels by Source")
     ax1.set_ylabel("Number of Effective Pixels (Millions)")
     plt.setp(ax1.get_xticklabels(), rotation=45, ha='right')
+    # Remove x-axis ticks
+    ax1.tick_params(axis='x', which='both', bottom=False)
     
     # Phenology distribution (by effective pixels)
     if "phenology" in metrics:
@@ -648,6 +710,8 @@ def create_metrics_page(metrics, title, pdf):
             ax2.set_title("Phenology Distribution (by Effective Pixels)")
             if len(labels) > 0:
                 ax2.legend(labels, loc="center left", bbox_to_anchor=(1, 0.5))
+        # Remove all ticks and labels for pie chart
+        ax2.axis('off')
     
     # Genus distribution (horizontal bar) by effective pixels
     if "genus" in metrics:
@@ -667,10 +731,39 @@ def create_metrics_page(metrics, title, pdf):
     if "species" in metrics:
         ax4 = plt.subplot(gs[1, 1])
         ax4.axis('off')
-        species_data = sorted(metrics["species"].items(), key=lambda x: x[1], reverse=True)
-        species_text = "Top Species (by Effective Pixels):\n\n"
-        for species, count in species_data:
-            species_text += f"{species}: {count/1000000:.2f}M pixels\n"
+        
+        # Use the new species with phenology data if available
+        if "species_with_pheno" in metrics:
+            # First summarize by species to get totals for sorting
+            species_summary = {}
+            for species, phenology, pixels in metrics["species_with_pheno"]:
+                if species not in species_summary:
+                    species_summary[species] = 0
+                species_summary[species] += pixels
+            
+            # Sort species by total pixel count
+            sorted_species = sorted(species_summary.items(), key=lambda x: x[1], reverse=True)
+            
+            # Create mapping of species to phenologies
+            species_to_phenos = {}
+            for species, phenology, pixels in metrics["species_with_pheno"]:
+                if species not in species_to_phenos:
+                    species_to_phenos[species] = set()
+                species_to_phenos[species].add(phenology)
+            
+            # Format the text with species and their phenologies
+            species_text = "Top Species (by Effective Pixels):\n\n"
+            for species, total_count in sorted_species:
+                # List of phenologies for this species (without pixel counts)
+                pheno_text = ", ".join(sorted(species_to_phenos[species]))
+                species_text += f"{species}: {total_count/1000000:.2f}M pixels ({pheno_text})\n"
+        else:
+            # Fallback to original display if new data format not available
+            species_data = sorted(metrics["species"].items(), key=lambda x: x[1], reverse=True)
+            species_text = "Top Species (by Effective Pixels):\n\n"
+            for species, count in species_data:
+                species_text += f"{species}: {count/1000000:.2f}M pixels\n"
+                
         ax4.text(0, 0.95, species_text, verticalalignment='top')
     
     plt.tight_layout(rect=[0, 0, 1, 0.95])
@@ -704,7 +797,7 @@ def create_comparative_page(metrics, pdf):
     ax1.bar(r2, bdforet_values, width=barWidth, label='BD Forêt')
     
     # Add labels and legend
-    ax1.set_xlabel('Region')
+    ax1.set_xlabel('')
     ax1.set_ylabel('Effective Pixels (Millions)')
     ax1.set_title('Effective Pixels by Region and Source')
     ax1.set_xticks([r + barWidth/2 for r in range(len(regions))])
@@ -740,9 +833,69 @@ def create_comparative_page(metrics, pdf):
         sns.heatmap(heatmap_data, annot=True, fmt=".2f", cmap="YlGnBu", 
                    xticklabels=all_phenology, yticklabels=regions, ax=ax)
         ax.set_title("Effective Pixels (Millions) by Phenology and Region")
+        ax.set_xlabel('')
+        ax.set_ylabel('')
         plt.tight_layout(rect=[0, 0, 1, 0.95])
         pdf.savefig()
         plt.close()
+
+def create_region_map(gdf, title, pdf):
+    """Create a map visualization of tiles for a region with contextily background."""
+    if len(gdf) == 0:
+        logging.warning(f"No data to plot for {title}")
+        return
+    
+    # Create figure
+    fig, ax = plt.subplots(figsize=(11.7, 8.3))  # A4 landscape
+    
+    # Set title
+    ax.set_title(title, fontsize=16, fontweight='bold')
+    
+    # Get tile boundaries for the region - we'll focus on these
+    tiles = gdf[["tile_id", "geometry"]].drop_duplicates("tile_id")
+    
+    # Try to read the tiles from the provided file path for more accurate boundaries
+    tiles_file = "results/datasets/tiles_2_5_km_final.parquet"
+    try:
+        if os.path.exists(tiles_file):
+            # Load the full tiles dataset
+            full_tiles_gdf = gpd.read_parquet(tiles_file)
+            # Filter to only the tile_ids in our current region
+            region_tile_ids = tiles["tile_id"].unique()
+            full_tiles_for_region = full_tiles_gdf[full_tiles_gdf.index.isin(region_tile_ids)]
+            if len(full_tiles_for_region) > 0:
+                # Use these tiles instead if we found matches
+                tiles = full_tiles_for_region.reset_index(names="tile_id")
+                logging.info(f"Using {len(tiles)} tiles from source file for {title}")
+            else:
+                logging.warning(f"No matching tiles found in source file for {title}, using derived tiles")
+        else:
+            logging.warning(f"Tiles file {tiles_file} not found, using derived tiles")
+    except Exception as e:
+        logging.warning(f"Error loading tiles from {tiles_file}: {e}. Using derived tiles.")
+    
+    # Convert to Web Mercator (EPSG:3857) for compatibility with contextily
+    tiles_webmerc = tiles.to_crs(epsg=3857)
+    
+    # Plot filled tiles (focus on this as requested)
+    tiles_webmerc.plot(ax=ax, color='black', alpha=0.5, edgecolor='black', linewidth=1)
+    
+    # Add contextily basemap
+    try:
+        ctx.add_basemap(ax, source=ctx.providers.OpenStreetMap.Mapnik)
+    except Exception as e:
+        logging.warning(f"Failed to add contextily basemap: {e}")
+        
+    # Remove axes ticks and labels
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel('')
+    ax.set_ylabel('')
+    
+    # Save figure
+    plt.tight_layout()
+    pdf.savefig()
+    plt.close()
 
 if __name__ == "__main__":
     main()
