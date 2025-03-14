@@ -622,27 +622,53 @@ def calculate_region_metrics(gdf):
     """Calculate metrics for a specific region or the overall dataset."""
     metrics = {}
     
+    # Calculate pixels based on area (1 pixel = 10m × 10m = 100 sq meters)
+    gdf["pixels"] = gdf.geometry.area / 100.0
+    
     # Effective pixels by source
     metrics["effective_pixels"] = {}
     for source in ["in-situ", "bdforet"]:
         source_gdf = gdf[gdf["source"] == source]
-        metrics["effective_pixels"][source] = source_gdf["effective_pixels"].sum()
-    metrics["effective_pixels"]["total"] = gdf["effective_pixels"].sum()
+        metrics["effective_pixels"][source] = source_gdf["pixels"].sum()
+    metrics["effective_pixels"]["total"] = gdf["pixels"].sum()
     
-    # Phenology distribution (by effective pixels)
+    # Phenology distribution (by pixels)
     if "phenology" in gdf.columns:
         metrics["phenology"] = {}
         for phen in gdf["phenology"].unique():
             phen_gdf = gdf[gdf["phenology"] == phen]
-            phen_pixels = phen_gdf["effective_pixels"].sum()
+            phen_pixels = phen_gdf["pixels"].sum()
             metrics["phenology"][phen] = phen_pixels
             
             # Log phenology distribution details
             total_species_for_phen = phen_gdf["species"].nunique()
-            top_species_for_phen = phen_gdf.groupby("species")["effective_pixels"].sum().nlargest(3)
+            top_species_for_phen = phen_gdf.groupby("species")["pixels"].sum().nlargest(3)
             logging.debug(f"Phenology '{phen}': {phen_pixels/1000000:.2f}M pixels, {total_species_for_phen} species")
             for sp, px in top_species_for_phen.items():
                 logging.debug(f"  - {sp}: {px/1000000:.2f}M pixels ({px/phen_pixels*100:.1f}% of {phen})")
+        
+        # Calculate deciduous vs evergreen metrics
+        metrics["deciduous_evergreen"] = {"Deciduous": 0.0, "Evergreen": 0.0, "Other": 0.0}
+        
+        # Map phenology values to deciduous/evergreen categories
+        deciduous_types = ["deciduous", "semi-deciduous"]
+        evergreen_types = ["evergreen"]
+        
+        for phen, pixels in metrics["phenology"].items():
+            phen_lower = phen.lower() if isinstance(phen, str) else str(phen).lower()
+            
+            if any(d_type in phen_lower for d_type in deciduous_types):
+                metrics["deciduous_evergreen"]["Deciduous"] += pixels
+            elif any(e_type in phen_lower for e_type in evergreen_types):
+                metrics["deciduous_evergreen"]["Evergreen"] += pixels
+            else:
+                metrics["deciduous_evergreen"]["Other"] += pixels
+                logging.debug(f"Phenology '{phen}' categorized as 'Other' for deciduous/evergreen classification")
+        
+        # Log detailed deciduous/evergreen pixels counts
+        logging.info(f"Deciduous pixels: {metrics['deciduous_evergreen']['Deciduous']:.0f} ({metrics['deciduous_evergreen']['Deciduous']/1000000:.2f}M)")
+        logging.info(f"Evergreen pixels: {metrics['deciduous_evergreen']['Evergreen']:.0f} ({metrics['deciduous_evergreen']['Evergreen']/1000000:.2f}M)")
+        logging.info(f"Other pixels: {metrics['deciduous_evergreen']['Other']:.0f} ({metrics['deciduous_evergreen']['Other']/1000000:.2f}M)")
     
     # Verify phenology totals match overall total
     if "phenology" in metrics:
@@ -652,28 +678,24 @@ def calculate_region_metrics(gdf):
             logging.warning(f"Phenology total ({pheno_total}) doesn't match overall total ({total_pixels})")
             logging.warning(f"Difference: {pheno_total - total_pixels} pixels")
     
-    # Genus distribution (top 10 by effective pixels)
+    # Genus distribution (top 10 by pixels)
     if "genus" in gdf.columns:
-        genus_pixels = gdf.groupby("genus")["effective_pixels"].sum()
+        genus_pixels = gdf.groupby("genus")["pixels"].sum()
         metrics["genus"] = genus_pixels.nlargest(10).to_dict()
     
-    # Species distribution (top 10 by effective pixels)
+    # Species distribution (top 10 by pixels)
     if "species" in gdf.columns and "phenology" in gdf.columns:
         # Group by both species and phenology
-        species_pheno_pixels = gdf.groupby(["species", "phenology"])["effective_pixels"].sum().reset_index()
+        species_pheno_pixels = gdf.groupby(["species", "phenology"])["pixels"].sum().reset_index()
         # Get top 10 species by total pixels
-        top_species = gdf.groupby("species")["effective_pixels"].sum().nlargest(10).index
+        top_species = gdf.groupby("species")["pixels"].sum().nlargest(10).index
         # Filter to only include top species
         species_pheno_filtered = species_pheno_pixels[species_pheno_pixels["species"].isin(top_species)]
         # Create dictionary with species and phenology info
         metrics["species_with_pheno"] = species_pheno_filtered.values.tolist()
         # Also keep the original species metrics
-        species_pixels = gdf.groupby("species")["effective_pixels"].sum()
+        species_pixels = gdf.groupby("species")["pixels"].sum()
         metrics["species"] = species_pixels.nlargest(10).to_dict()
-        
-        # Add extra debugging for top species phenology distribution
-        top_species_total = species_pixels.nlargest(10).sum()
-        logging.debug(f"Top 10 species represent {top_species_total/total_pixels*100:.1f}% of total effective pixels")
     
     return metrics
 
@@ -681,8 +703,8 @@ def create_metrics_page(metrics, title, pdf):
     """Create a PDF page with metrics for a region or overall."""
     plt.figure(figsize=(11.7, 8.3))  # A4 landscape
     
-    # Create a grid for organizing plots
-    gs = gridspec.GridSpec(2, 2)
+    # Create a grid for organizing plots - use 2 x 3 grid
+    gs = gridspec.GridSpec(2, 3)
     
     # Title
     plt.suptitle(title, fontsize=16, fontweight='bold', y=0.98)
@@ -692,30 +714,57 @@ def create_metrics_page(metrics, title, pdf):
     sources = list(metrics["effective_pixels"].keys())
     values = [v / 1000000 for v in metrics["effective_pixels"].values()]  # Convert to millions
     ax1.bar(sources, values)
-    ax1.set_title("Effective Pixels by Source")
-    ax1.set_ylabel("Number of Effective Pixels (Millions)")
+    ax1.set_title("Pixels by Source")
+    ax1.set_ylabel("Number of Pixels (Millions)")
     plt.setp(ax1.get_xticklabels(), rotation=45, ha='right')
     # Remove x-axis ticks
     ax1.tick_params(axis='x', which='both', bottom=False)
     
-    # Phenology distribution (by effective pixels)
-    if "phenology" in metrics:
-        ax2 = plt.subplot(gs[0, 1])
-        labels = list(metrics["phenology"].keys())
-        sizes = list(metrics["phenology"].values())
-        total = sum(sizes)
+    # Deciduous vs Evergreen pie chart
+    if "deciduous_evergreen" in metrics:
+        ax_de = plt.subplot(gs[0, 1])
+        de_labels = []
+        de_sizes = []
+        
+        # Filter out categories with zero pixels
+        for label, size in metrics["deciduous_evergreen"].items():
+            if size > 0:
+                de_labels.append(label)
+                de_sizes.append(size)
+        
+        total_de = sum(de_sizes)
+        
         # Only create pie chart if there's data
-        if total > 0:
-            ax2.pie([s/total for s in sizes], labels=None, autopct='%1.1f%%', startangle=90)
-            ax2.set_title("Phenology Distribution (by Effective Pixels)")
-            if len(labels) > 0:
-                ax2.legend(labels, loc="center left", bbox_to_anchor=(1, 0.5))
+        if total_de > 0:
+            wedges, _, autotexts = ax_de.pie([s/total_de for s in de_sizes], labels=None, 
+                                           autopct='%1.1f%%', startangle=90, 
+                                           colors=['#90ee90', '#228b22', '#d3d3d3']) # Light green, forest green, light gray
+            
+            # Enhance the appearance of the percentage text
+            for autotext in autotexts:
+                autotext.set_fontsize(9)
+                autotext.set_weight('bold')
+                
+            ax_de.set_title("Deciduous vs Evergreen (by Pixels)")
+            if de_labels:
+                ax_de.legend(de_labels, loc="center left", bbox_to_anchor=(1, 0.5))
+        
         # Remove all ticks and labels for pie chart
-        ax2.axis('off')
+        ax_de.axis('off')
+        
+        # Add text box with exact pixel counts
+        ax_text = plt.subplot(gs[0, 2])
+        ax_text.axis('off')
+        text_content = "Pixel counts (10m × 10m):\n\n"
+        for label, size in metrics["deciduous_evergreen"].items():
+            if size > 0:
+                text_content += f"{label}: {size:,.0f} pixels ({size/1000000:.2f}M)\n"
+        text_content += f"\nTotal: {total_de:,.0f} pixels ({total_de/1000000:.2f}M)"
+        ax_text.text(0, 0.95, text_content, verticalalignment='top')
     
-    # Genus distribution (horizontal bar) by effective pixels
+    # Genus distribution (horizontal bar) by pixels
     if "genus" in metrics:
-        ax3 = plt.subplot(gs[1, 0])
+        ax3 = plt.subplot(gs[1, 0:2])  # Span two columns
         genus_data = sorted(metrics["genus"].items(), key=lambda x: x[1], reverse=True)
         labels = [x[0] for x in genus_data]
         values = [x[1] / 1000000 for x in genus_data]  # Convert to millions
@@ -724,12 +773,12 @@ def create_metrics_page(metrics, title, pdf):
         ax3.set_yticks(y_pos)
         ax3.set_yticklabels(labels)
         ax3.invert_yaxis()  # labels read top-to-bottom
-        ax3.set_title("Top Genera (by Effective Pixels)")
-        ax3.set_xlabel("Effective Pixels (Millions)")
+        ax3.set_title("Top Genera (by Pixels)")
+        ax3.set_xlabel("Pixels (Millions)")
     
     # Species distribution (text only due to potentially long names)
     if "species" in metrics:
-        ax4 = plt.subplot(gs[1, 1])
+        ax4 = plt.subplot(gs[1, 2])
         ax4.axis('off')
         
         # Use the new species with phenology data if available
@@ -752,7 +801,7 @@ def create_metrics_page(metrics, title, pdf):
                 species_to_phenos[species].add(phenology)
             
             # Format the text with species and their phenologies
-            species_text = "Top Species (by Effective Pixels):\n\n"
+            species_text = "Top Species (by Pixels):\n\n"
             for species, total_count in sorted_species:
                 # List of phenologies for this species (without pixel counts)
                 pheno_text = ", ".join(sorted(species_to_phenos[species]))
@@ -760,7 +809,7 @@ def create_metrics_page(metrics, title, pdf):
         else:
             # Fallback to original display if new data format not available
             species_data = sorted(metrics["species"].items(), key=lambda x: x[1], reverse=True)
-            species_text = "Top Species (by Effective Pixels):\n\n"
+            species_text = "Top Species (by Pixels):\n\n"
             for species, count in species_data:
                 species_text += f"{species}: {count/1000000:.2f}M pixels\n"
                 
@@ -781,7 +830,7 @@ def create_comparative_page(metrics, pdf):
     regions = list(metrics["regions"].keys())
     
     # Effective pixels comparison (in millions)
-    ax1 = plt.subplot(111)
+    ax1 = plt.subplot(211)  # Changed to take top half
     
     # Data for grouped bar chart (converted to millions)
     in_situ_values = [metrics["regions"][r]["effective_pixels"]["in-situ"] / 1000000 for r in regions]
@@ -798,41 +847,62 @@ def create_comparative_page(metrics, pdf):
     
     # Add labels and legend
     ax1.set_xlabel('')
-    ax1.set_ylabel('Effective Pixels (Millions)')
-    ax1.set_title('Effective Pixels by Region and Source')
+    ax1.set_ylabel('Pixels (Millions)')
+    ax1.set_title('Pixels by Region and Source')
     ax1.set_xticks([r + barWidth/2 for r in range(len(regions))])
     ax1.set_xticklabels(regions, rotation=45, ha='right')
     ax1.legend()
+    
+    # Deciduous vs. Evergreen comparison across regions
+    if all("deciduous_evergreen" in metrics["regions"][r] for r in regions):
+        ax2 = plt.subplot(212)  # Bottom half
+        
+        # Data for stacked bar chart (converted to millions)
+        deciduous_values = [metrics["regions"][r]["deciduous_evergreen"].get("Deciduous", 0) / 1000000 for r in regions]
+        evergreen_values = [metrics["regions"][r]["deciduous_evergreen"].get("Evergreen", 0) / 1000000 for r in regions]
+        other_values = [metrics["regions"][r]["deciduous_evergreen"].get("Other", 0) / 1000000 for r in regions]
+        
+        # Create stacked bars
+        ax2.bar(regions, deciduous_values, label='Deciduous', color='#90ee90')
+        ax2.bar(regions, evergreen_values, bottom=deciduous_values, label='Evergreen', color='#228b22')
+        
+        # Only add "Other" if there are non-zero values
+        if any(v > 0 for v in other_values):
+            bottom_values = [d + e for d, e in zip(deciduous_values, evergreen_values)]
+            ax2.bar(regions, other_values, bottom=bottom_values, label='Other', color='#d3d3d3')
+        
+        # Add labels and legend
+        ax2.set_xlabel('')
+        ax2.set_ylabel('Pixels (Millions)')
+        ax2.set_title('Deciduous vs Evergreen Distribution by Region')
+        plt.setp(ax2.get_xticklabels(), rotation=45, ha='right')
+        ax2.legend()
     
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     pdf.savefig()
     plt.close()
     
-    # Add heatmap page for phenology distribution by region
-    if all("phenology" in metrics["regions"][r] for r in regions):
+    # Add deciduous vs evergreen heatmap
+    if all("deciduous_evergreen" in metrics["regions"][r] for r in regions):
         plt.figure(figsize=(11.7, 8.3))  # A4 landscape
-        plt.suptitle("Phenology Distribution by Region (Effective Pixels)", fontsize=16, fontweight='bold', y=0.98)
+        plt.suptitle("Deciduous vs Evergreen by Region (Pixels)", fontsize=16, fontweight='bold', y=0.98)
         
-        # Collect all phenology types
-        all_phenology = set()
-        for r in regions:
-            all_phenology.update(metrics["regions"][r]["phenology"].keys())
-        all_phenology = sorted(all_phenology)
+        # Create data for deciduous/evergreen heatmap
+        de_categories = ["Deciduous", "Evergreen", "Other"]
+        de_heatmap_data = []
         
-        # Create data for heatmap
-        heatmap_data = []
         for r in regions:
             row = []
-            for phen in all_phenology:
+            for cat in de_categories:
                 # Get pixels in millions
-                pixel_count = metrics["regions"][r]["phenology"].get(phen, 0) / 1000000
+                pixel_count = metrics["regions"][r]["deciduous_evergreen"].get(cat, 0) / 1000000
                 row.append(pixel_count)
-            heatmap_data.append(row)
+            de_heatmap_data.append(row)
         
         ax = plt.subplot(111)
-        sns.heatmap(heatmap_data, annot=True, fmt=".2f", cmap="YlGnBu", 
-                   xticklabels=all_phenology, yticklabels=regions, ax=ax)
-        ax.set_title("Effective Pixels (Millions) by Phenology and Region")
+        sns.heatmap(de_heatmap_data, annot=True, fmt=".2f", cmap="YlGnBu", 
+                   xticklabels=de_categories, yticklabels=regions, ax=ax)
+        ax.set_title("Pixels (Millions) by Phenology Type and Region")
         ax.set_xlabel('')
         ax.set_ylabel('')
         plt.tight_layout(rect=[0, 0, 1, 0.95])

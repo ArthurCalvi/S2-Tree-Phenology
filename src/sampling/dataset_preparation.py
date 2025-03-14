@@ -443,6 +443,9 @@ def main():
     # Create output directory if it doesn't exist
     os.makedirs(args.output_dir, exist_ok=True)
     
+    # Dictionary to track skipped tiles and reasons
+    skipped_tiles_info = defaultdict(list)
+    
     # Find the features file
     if os.path.isdir(args.features_path):
         # Look for a VRT file first
@@ -567,6 +570,11 @@ def main():
             if len(tile_dataset) == 0:
                 logging.warning(f"No polygons found for tile {tile_id}, skipping")
                 skipped_tiles += 1
+                skipped_tiles_info[tile_id].append({
+                    "reason": "No polygons associated with this tile",
+                    "tile_bounds": tile_geometry.bounds,
+                    "crs": str(tiles_gdf.crs)
+                })
                 continue
             
             # Clip the feature raster to the tile geometry
@@ -583,6 +591,13 @@ def main():
                 if not tile_geom_in_raster_crs.is_valid or tile_geom_in_raster_crs.is_empty:
                     logging.error(f"Invalid or empty tile geometry for tile {tile_id} after reprojection")
                     skipped_tiles += 1
+                    skipped_tiles_info[tile_id].append({
+                        "reason": "Invalid or empty tile geometry after reprojection",
+                        "tile_bounds": tile_geometry.bounds,
+                        "reprojected_bounds": tile_geom_in_raster_crs.bounds if hasattr(tile_geom_in_raster_crs, "bounds") else None,
+                        "original_crs": str(tiles_gdf.crs),
+                        "target_crs": str(target_crs)
+                    })
                     continue
                 
                 # Check if the tile intersects with any of the actual TIF files
@@ -602,6 +617,14 @@ def main():
                 if not intersects_any_tif:
                     logging.warning(f"Tile {tile_id} does not intersect with any TIF files. Skipping.")
                     skipped_tiles += 1
+                    skipped_tiles_info[tile_id].append({
+                        "reason": "Tile does not intersect with any TIF files",
+                        "tile_bounds": tile_geometry.bounds,
+                        "reprojected_bounds": tile_geom_in_raster_crs.bounds,
+                        "original_crs": str(tiles_gdf.crs),
+                        "target_crs": str(target_crs),
+                        "tif_files": [str(f.name) for f in tif_files]
+                    })
                     continue
                 
                 # Get the bounding box of the geometry in the raster's CRS
@@ -752,14 +775,63 @@ def main():
                         logging.info(f"Processed {processed_tiles} tiles so far, skipped {skipped_tiles}")
                 
                 except Exception as e:
-                    logging.error(f"Error processing tile {tile_id}: {e}")
-                    logging.debug("Error details:", exc_info=True)
+                    logging.error(f"Error processing tile {tile_id}: {e}", exc_info=True)
+                    skipped_tiles += 1
+                    skipped_tiles_info[tile_id].append({
+                        "reason": f"Error during processing: {str(e)}",
+                        "tile_bounds": tile_geometry.bounds if hasattr(tile_geometry, "bounds") else None,
+                        "original_crs": str(tiles_gdf.crs)
+                    })
             
         except Exception as e:
             logging.error(f"Error processing tile {tile_id}: {e}", exc_info=True)
     
+    # Generate and save report on skipped tiles
+    if skipped_tiles > 0:
+        generate_skipped_tiles_report(skipped_tiles_info, args.output_dir)
+    
     logging.info(f"Completed! Processed {processed_tiles} out of {len(tiles_gdf)} tiles, skipped {skipped_tiles}")
     logging.info(f"Complete log saved to {log_file}")
+
+def generate_skipped_tiles_report(skipped_tiles_info, output_dir):
+    """Generate a report on skipped tiles and save it to a file."""
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_path = os.path.join(output_dir, f"skipped_tiles_report_{timestamp}.json")
+    
+    # Convert defaultdict to regular dict for JSON serialization
+    report_data = {
+        "summary": {
+            "total_skipped_tiles": len(skipped_tiles_info),
+            "total_skip_reasons": sum(len(reasons) for reasons in skipped_tiles_info.values()),
+            "timestamp": datetime.datetime.now().isoformat()
+        },
+        "skipped_tiles": dict(skipped_tiles_info)
+    }
+    
+    # Create a count of skip reasons for the summary
+    reason_counts = defaultdict(int)
+    for tile_id, reasons in skipped_tiles_info.items():
+        for reason_info in reasons:
+            reason_key = reason_info["reason"].split(":")[0].strip()
+            reason_counts[reason_key] += 1
+    
+    report_data["summary"]["reason_counts"] = dict(reason_counts)
+    
+    # Save the report as JSON
+    with open(report_path, 'w') as f:
+        json.dump(report_data, f, indent=2, default=str)  # default=str handles non-serializable objects
+    
+    logging.info(f"Saved skipped tiles report to {report_path}")
+    
+    # Also save a simple CSV version for easy viewing
+    csv_path = os.path.join(output_dir, f"skipped_tiles_report_{timestamp}.csv")
+    with open(csv_path, 'w') as f:
+        f.write("tile_id,reason\n")
+        for tile_id, reasons in skipped_tiles_info.items():
+            for reason_info in reasons:
+                f.write(f"{tile_id},\"{reason_info['reason']}\"\n")
+    
+    logging.info(f"Saved simplified skipped tiles report as CSV to {csv_path}")
 
 if __name__ == "__main__":
     main() 
