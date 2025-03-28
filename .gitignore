@@ -41,6 +41,7 @@ wheels/
 *.html
 *.css
 *.js
+*.pdf 
 
     
 # Virtual Environment

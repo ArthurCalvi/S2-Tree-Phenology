@@ -136,3 +136,19 @@ FOREST_COVER_RATIO_BY_REGION = {
     "Mediterranean": 0.75,  # Cévennes/Alpes Externes du Sud: 70-80%
     "Corsica": 0.75  # Assuming similar to Mediterranean regions
 }
+
+# Effective forest area by eco-region in square kilometers
+# Calculated by multiplying the total area of each eco-region by its forest cover ratio
+EFFECTIVE_FOREST_AREA_BY_REGION = {
+    "Alps": 13007.42,  # Total area: 28905.38 km² * forest ratio: 0.45
+    "Central Massif": 38632.55,  # Total area: 78841.95 km² * forest ratio: 0.49
+    "Corsica": 6569.81,  # Total area: 8759.75 km² * forest ratio: 0.75
+    "Greater Crystalline and Oceanic West": 11947.86,  # Total area: 59739.31 km² * forest ratio: 0.20
+    "Greater Semi-Continental East": 52825.64,  # Total area: 70434.18 km² * forest ratio: 0.75
+    "Jura": 5788.60,  # Total area: 9647.66 km² * forest ratio: 0.60
+    "Mediterranean": 26838.60,  # Total area: 35784.80 km² * forest ratio: 0.75
+    "Oceanic Southwest": 61409.33,  # Total area: 81879.11 km² * forest ratio: 0.75
+    "Pyrenees": 9995.91,  # Total area: 15378.33 km² * forest ratio: 0.65
+    "Semi-Oceanic North Center": 44940.11,  # Total area: 149800.37 km² * forest ratio: 0.30
+    "Vosges": 7002.68,  # Total area: 9336.91 km² * forest ratio: 0.75
+}

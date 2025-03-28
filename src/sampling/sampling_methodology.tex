@@ -1,0 +1,66 @@
+\subsubsection{Reference Data Selection and Balanced Sampling Strategy}
+
+France's diverse forest ecosystems span multiple ecological regions, each with distinct species compositions, soil characteristics, and climatic conditions. To develop a robust classification model capable of generalizing across this ecological diversity, we implemented a sophisticated sampling strategy that ensures balanced representation while accounting for the proportional distribution of forest cover across eco-regions.
+
+\paragraph{Hierarchical Tile Selection}
+We began by partitioning France into a uniform grid of 2.5\,km~$\times$~2.5\,km tiles. From this grid, we applied a multi-criteria selection process to identify tiles with optimal in-situ reference data coverage:
+
+\begin{enumerate}
+    \item \textbf{Pixel-density filtering:} We retained only tiles containing a minimum threshold of 10 in-situ reference pixels, eliminating tiles with insufficient data for reliable training.
+    
+    \item \textbf{Eco-region assignment:} Each tile was assigned to its corresponding ecological region based on centroid location, allowing for stratified sampling across France's diverse landscapes.
+    
+    \item \textbf{Effective forest area calculation:} We computed the effective forest area for each eco-region by multiplying its total geographic area by its forest cover ratio, providing a more accurate representation of forest distribution than raw area metrics alone.
+    
+    \item \textbf{Spatial distribution optimization:} To mitigate spatial autocorrelation and enhance model generalizability, we implemented a distance-constrained selection algorithm that maintained a minimum separation of 5\,km between selected tiles while maximizing coverage across eco-regions.
+\end{enumerate}
+
+\paragraph{Eco-region Balancing via Weighted Sampling}
+A key innovation in our approach was the implementation of a weighted sampling strategy that aligns training data distribution with actual forest cover distribution across France. For each eco-region, we calculated a weight factor based on the ratio between its effective forest area fraction and its representation in the raw dataset:
+
+\begin{equation}
+    \text{weight}_{\text{eco-region}} = \frac{\text{effective forest area fraction}}{\text{dataset fraction}}
+\end{equation}
+
+This weighting scheme assigns higher importance to pixels from eco-regions that are underrepresented relative to their effective forest area, and lower importance to those from overrepresented regions. Table~\ref{tab:eco_region_weights} presents the comprehensive weighting scheme applied across all eco-regions.
+
+\begin{table}[h]
+\centering
+\caption{Eco-region weight distribution based on effective forest area and dataset representation}
+\label{tab:eco_region_weights}
+\begin{tabular}{lrrrrr}
+\hline
+\textbf{Eco-region} & \textbf{Samples} & \textbf{\% of Dataset} & \textbf{\% of Forest Area} & \textbf{Weight} \\
+\hline
+Greater Semi-Continental East & 2,874,817 & 20.41\% & 18.94\% & 0.9279 \\
+Oceanic Southwest & 2,655,860 & 18.85\% & 22.01\% & 1.1676 \\
+Semi-Oceanic North Center & 2,463,340 & 17.49\% & 16.11\% & 0.9213 \\
+Central Massif & 1,928,236 & 13.69\% & 13.85\% & 1.0117 \\
+Mediterranean & 1,458,742 & 10.36\% & 9.62\% & 0.9291 \\
+Alps & 716,167 & 5.08\% & 4.66\% & 0.9172 \\
+Pyrenees & 556,499 & 3.95\% & 3.58\% & 0.9071 \\
+Greater Crystalline and Oceanic West & 485,064 & 3.44\% & 4.28\% & 1.2439 \\
+Vosges & 396,032 & 2.81\% & 2.51\% & 0.8929 \\
+Corsica & 354,922 & 2.52\% & 2.36\% & 0.9348 \\
+Jura & 197,258 & 1.40\% & 2.08\% & 1.4819 \\
+\hline
+\end{tabular}
+\end{table}
+
+The weights were subsequently normalized to maintain the effective sample size while ensuring proper class balance. This approach yielded weights ranging from 0.89 to 1.48, with a mean of 1.0, thus preserving the overall statistical power of the dataset while correcting for eco-regional imbalances.
+
+\paragraph{Feature Extraction and Dataset Construction}
+For each selected tile, we extracted a comprehensive set of spectral and temporal features from Sentinel-2 time series data:
+
+\begin{itemize}
+    \item \textbf{Vegetation indices:} Four key indices (NDVI, EVI, NBR, CRSWIR) were computed from the time series.
+    \item \textbf{Harmonic parameters:} Six parameters per index were extracted through harmonic analysis, capturing seasonal vegetation dynamics: amplitude (harmonics 1 and 2), phase (harmonics 1 and 2), offset, and residual variance.
+    \item \textbf{Categorical attributes:} Five categorical attributes were incorporated for each pixel: phenology class (deciduous or evergreen), genus, species, data source, and year of observation.
+\end{itemize}
+
+This process generated a rich, multi-dimensional dataset containing 24 spectro-temporal features and 5 categorical attributes for each of the 14,086,937 reference pixels, spanning 11 ecological regions across France.
+
+\paragraph{Validation of Sampling Strategy}
+To validate our sampling approach, we conducted a comprehensive analysis of the representativeness of our dataset across France's forest ecosystems. The final dataset achieved a high degree of alignment between the percentage of forest area and the percentage of weighted samples across all eco-regions (Figure~\ref{fig:eco_region_distribution}), with a correlation coefficient of 0.98 between these two metrics. This confirms that our weighted sampling strategy effectively addresses the ecological diversity of French forests while mitigating potential spatial and eco-regional biases.
+
+This methodologically rigorous sampling framework ensures that our model can generalize effectively across France's diverse forest ecosystems, providing a solid foundation for national-scale phenology classification. 
