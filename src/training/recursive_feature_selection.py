@@ -36,6 +36,7 @@ import argparse
 from collections import defaultdict
 import matplotlib.gridspec as gridspec
 from matplotlib.backends.backend_pdf import PdfPages
+from sklearn.base import clone
 
 # Set up logging
 os.makedirs('logs', exist_ok=True)
@@ -225,8 +226,6 @@ class CustomRFECV:
         self.support_ = None
         self.n_features_ = None
         self.cv_results_ = None
-        self.best_model_predictions_ = []
-        self.all_predictions = []  # Store predictions for each feature count
         self.fold_splits = None    # Store fold splits for later use
         
     def fit(self, X, y, df):
@@ -237,7 +236,9 @@ class CustomRFECV:
         feature_names = X.columns.tolist()
         
         # Create eco-region balanced folds
+        logger.info("Creating eco-region balanced folds...")
         self.fold_splits = create_eco_balanced_folds(df, n_splits=self.cv)
+        logger.info(f"Created {self.cv} folds successfully")
         
         # Initialize variables to store results
         self.cv_results_ = {
@@ -258,23 +259,23 @@ class CustomRFECV:
             current_features = [f for i, f in enumerate(feature_names) if support[i]]
             
             logger.info(f"Evaluating with {current_n_features} features")
+            logger.info(f"Current features: {current_features}")
             
             # Cross-validation scores for this feature set
             fold_metrics = []
             fold_importances = []
-            all_true = []
-            all_pred = []
-            
-            # Store predictions for each fold for this feature count
-            feature_predictions = []
             
             # For each fold
             for fold_idx, (train_idx, val_idx) in enumerate(tqdm(self.fold_splits, desc=f"Cross-validation with {current_n_features} features")):
+                logger.info(f"Processing fold {fold_idx+1}/{self.cv} with {len(train_idx)} training samples and {len(val_idx)} validation samples")
+                
                 # Split data
                 X_train = X.iloc[train_idx][current_features]
                 X_val = X.iloc[val_idx][current_features]
                 y_train = y.iloc[train_idx]
                 y_val = y.iloc[val_idx]
+                
+                logger.info(f"Fold {fold_idx+1} - Training data shape: {X_train.shape}, Validation data shape: {X_val.shape}")
                 
                 # Apply sample weights if available
                 sample_weights = None
@@ -282,45 +283,29 @@ class CustomRFECV:
                     sample_weights = df.iloc[train_idx]['weight'].values
                 
                 # Train model
+                logger.info(f"Fold {fold_idx+1} - Training Random Forest model...")
                 model = self.estimator
                 model.fit(X_train, y_train, sample_weight=sample_weights)
+                logger.info(f"Fold {fold_idx+1} - Model training completed")
                 
                 # Store feature importance
                 fold_importances.append(pd.Series(model.feature_importances_, index=current_features))
                 
                 # Make predictions
+                logger.info(f"Fold {fold_idx+1} - Making predictions on validation set...")
                 y_pred = model.predict(X_val)
+                logger.info(f"Fold {fold_idx+1} - Predictions completed")
                 
-                # Store predictions for overall metrics
-                all_true.extend(y_val)
-                all_pred.extend(y_pred)
-                
-                # Store detailed predictions with eco-region information
-                fold_pred = []
-                for i in range(len(y_val)):
-                    fold_pred.append({
-                        'y_true': y_val.iloc[i],
-                        'y_pred': y_pred[i],
-                        'eco_region': df.iloc[val_idx]['eco_region'].iloc[i]
-                    })
-                feature_predictions.append(fold_pred)
-                
-                # Compute metrics
+                # Compute metrics immediately
                 metrics = compute_metrics(y_val, y_pred)
                 metrics['fold'] = fold_idx + 1
                 fold_metrics.append(metrics)
-            
-            # Store all predictions for this feature count
-            self.all_predictions.append(feature_predictions)
+                logger.info(f"Fold {fold_idx+1} - F1 Score: {metrics['f1_score']:.4f}, Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}")
             
             # Calculate average scores across folds
             fold_metrics_df = pd.DataFrame(fold_metrics)
             mean_score = fold_metrics_df[self.scoring].mean()
             std_score = fold_metrics_df[self.scoring].std()
-            
-            # Overall metrics (across all predictions)
-            overall_metrics = compute_metrics(all_true, all_pred)
-            overall_metrics['n_features'] = current_n_features
             
             # Average feature importances across folds
             avg_importance = pd.concat(fold_importances, axis=1).mean(axis=1)
@@ -334,36 +319,39 @@ class CustomRFECV:
             self.cv_results_['feature_importances'].append(avg_importance)
             
             logger.info(f"  F1 Score: {mean_score:.4f} ± {std_score:.4f}")
-            logger.info(f"  TP: {overall_metrics['tp']}, FP: {overall_metrics['fp']}, TN: {overall_metrics['tn']}, FN: {overall_metrics['fn']}")
             
             # If we're at the minimum number of features, break
             if current_n_features <= self.min_features_to_select:
                 break
             
             # Calculate number of features to eliminate
-            if isinstance(self.step, int):
+            if isinstance(self.step, list):
+                # Get appropriate step size based on how many features remain
+                remaining_steps = len(self.step) - len(self.cv_results_['n_features'])
+                step_idx = max(0, len(self.step) - remaining_steps - 1)
+                n_to_eliminate = self.step[step_idx]
+                logger.info(f"Using step size {n_to_eliminate} (step {len(self.cv_results_['n_features'])+1})")
+            elif isinstance(self.step, int):
                 n_to_eliminate = min(self.step, current_n_features - self.min_features_to_select)
             else:
                 n_to_eliminate = max(1, int(current_n_features * self.step))
                 n_to_eliminate = min(n_to_eliminate, current_n_features - self.min_features_to_select)
             
             # Get feature importances for current feature set
-            importances = np.zeros(n_features)
             supported_indices = np.where(support)[0]
             current_feature_names = [feature_names[i] for i in supported_indices]
             
-            # Map average importances (which are indexed by name) to the supported indices
+            # Map average importances to the supported indices
             current_importances = np.array([avg_importance[name] for name in current_feature_names])
 
-            # Find the indices of the features to eliminate within the current set
-            # Ensure we don't try to eliminate more features than available
+            # Find the indices of the features to eliminate
             actual_n_to_eliminate = min(n_to_eliminate, len(current_importances))
             indices_to_eliminate_relative = np.argsort(current_importances)[:actual_n_to_eliminate]
             
             # Map these relative indices back to the original feature indices
             original_indices_to_eliminate = supported_indices[indices_to_eliminate_relative]
 
-            # Update support mask by setting the specific indices to False
+            # Update support mask
             support[original_indices_to_eliminate] = False
             current_n_features = np.sum(support) # Update the count
             
@@ -397,51 +385,58 @@ class CustomRFECV:
         logger.info(f"Best number of features: {self.n_features_}")
         logger.info(f"Selected features: {best_features}")
 
-        # Calculate final predictions and metrics per eco-region for the best model
-        logger.info(f"Calculating final predictions and metrics per eco-region for the best {self.n_features_} features...")
-        self.best_model_predictions_ = []
-        all_true_best = []
-        all_pred_best = []
-
-        for fold_idx, (train_idx, val_idx) in enumerate(tqdm(self.fold_splits, desc=f"Final CV with {self.n_features_} features")):
-            # Split data using best features
-            X_train_best = X.iloc[train_idx][best_features]
-            X_val_best = X.iloc[val_idx][best_features]
-            y_train_fold = y.iloc[train_idx]
-            y_val_fold = y.iloc[val_idx]
-            eco_regions_fold = df.iloc[val_idx]['eco_region']
-            
-            # Apply sample weights if available
-            sample_weights = None
-            if 'weight' in df.columns:
-                sample_weights = df.iloc[train_idx]['weight'].values
-            
-            # Train model
-            model = self.estimator
-            model.fit(X_train_best, y_train_fold, sample_weight=sample_weights)
-            
-            # Make predictions
-            y_pred_fold = model.predict(X_val_best)
-            
-            # Store detailed predictions
-            for i in range(len(y_val_fold)):
-                self.best_model_predictions_.append({
-                    'y_true': y_val_fold.iloc[i],
-                    'y_pred': y_pred_fold[i],
-                    'eco_region': eco_regions_fold.iloc[i]
-                })
-            all_true_best.extend(y_val_fold)
-            all_pred_best.extend(y_pred_fold)
-            
-        # Log overall performance for the best model
-        best_model_overall_metrics = compute_metrics(all_true_best, all_pred_best)
-        logger.info(f"Overall performance metrics for best model ({self.n_features_} features):")
-        logger.info(f"  F1 Score: {best_model_overall_metrics['f1_score']:.4f}")
-        logger.info(f"  Precision: {best_model_overall_metrics['precision']:.4f}")
-        logger.info(f"  Recall: {best_model_overall_metrics['recall']:.4f}")
-        logger.info(f"  TP: {best_model_overall_metrics['tp']}, FP: {best_model_overall_metrics['fp']}, TN: {best_model_overall_metrics['tn']}, FN: {best_model_overall_metrics['fn']}")
+        # For the best model, calculate metrics per eco-region
+        logger.info(f"Calculating eco-region metrics for the best model ({self.n_features_} features)...")
+        self.best_model_eco_metrics = self.calculate_eco_region_metrics(X, y, df, best_features)
 
         return self
+    
+    def calculate_eco_region_metrics(self, X, y, df, best_features):
+        """Calculate metrics per eco-region using the best features"""
+        eco_metrics = {}
+        eco_regions = df['eco_region'].unique()
+        
+        for eco_region in eco_regions:
+            # Get eco-region mask
+            eco_mask = df['eco_region'] == eco_region
+            
+            # Calculate metrics for each fold
+            fold_scores = []
+            for fold_idx, (train_idx, val_idx) in enumerate(self.fold_splits):
+                # Get validation indices for this eco-region
+                val_eco_idx = np.array([i for i in val_idx if eco_mask.iloc[i]])
+                
+                if len(val_eco_idx) == 0:
+                    continue  # Skip if no validation samples for this eco-region in this fold
+                
+                # Train on all training data
+                X_train = X.iloc[train_idx][best_features]
+                y_train = y.iloc[train_idx]
+                
+                # Test only on this eco-region's validation data
+                X_val_eco = X.iloc[val_eco_idx][best_features]
+                y_val_eco = y.iloc[val_eco_idx]
+                
+                # Train and predict
+                model = clone(self.estimator)  # Clone to ensure fresh model
+                model.fit(X_train, y_train)
+                y_pred_eco = model.predict(X_val_eco)
+                
+                # Calculate metrics
+                if len(np.unique(y_val_eco)) > 1:  # Ensure at least two classes
+                    metrics = compute_metrics(y_val_eco, y_pred_eco)
+                    fold_scores.append(metrics)
+            
+            if fold_scores:
+                # Average metrics across folds
+                eco_metrics[eco_region] = {
+                    'f1_score': np.mean([m['f1_score'] for m in fold_scores]),
+                    'precision': np.mean([m['precision'] for m in fold_scores]),
+                    'recall': np.mean([m['recall'] for m in fold_scores]),
+                    'n_samples': sum(eco_mask)
+                }
+        
+        return eco_metrics
 
 def calculate_eco_region_metrics(predictions_list):
     """Calculate performance metrics grouped by eco-region."""
@@ -826,6 +821,8 @@ def main():
                         help='Minimum number of features to select (default: 6).')
     parser.add_argument('--dataset_path', type=str, default=DATASET_PATH,
                         help='Path to the dataset parquet file.')
+    parser.add_argument('--step_sizes', type=str, default='1',
+                        help='Comma-separated list of step sizes (features to remove at each iteration)')
     args = parser.parse_args()
     
     # Create output directory
@@ -876,69 +873,20 @@ def main():
     # Initialize model
     rf = RandomForestClassifier(n_estimators=30, random_state=42, n_jobs=-1, class_weight='balanced')
     
-    # Perform recursive feature elimination with cross-validation
+    # Initialize step sizes
+    step_sizes = [int(x) for x in args.step_sizes.split(',')]
+
+    # Initialize RFE with adaptive step size
     rfecv = CustomRFECV(
         estimator=rf,
         min_features_to_select=args.min_features,
-        step=1,
+        step=step_sizes,  # Pass the list of step sizes
         cv=5,
         scoring='f1_score'
     )
     
     # Fit the model
     rfecv.fit(X, y, df)
-    
-    # Calculate eco-region stability metrics
-    logger.info("Calculating eco-region stability metrics...")
-    eco_stability_data = []
-    
-    # For each feature count
-    for i, n_feat in enumerate(rfecv.cv_results_['n_features']):
-        # Get all predictions for this feature count
-        feature_predictions = []
-        for fold_idx, fold_preds in enumerate(rfecv.all_predictions[i]):
-            feature_predictions.extend(fold_preds)
-        
-        # Calculate F1 score per eco-region
-        if feature_predictions:
-            pred_df = pd.DataFrame(feature_predictions)
-            eco_f1_scores = []
-            for region, group in pred_df.groupby('eco_region'):
-                if len(group) > 0:
-                    f1 = f1_score(group['y_true'], group['y_pred'])
-                    eco_f1_scores.append(f1)
-            
-            # Calculate standard deviation of F1 scores across eco-regions
-            if eco_f1_scores:
-                eco_stability = {
-                    'n_features': n_feat,
-                    'f1_std_across_eco': np.std(eco_f1_scores),
-                    'f1_mean_across_eco': np.mean(eco_f1_scores),
-                    'n_eco_regions': len(eco_f1_scores)
-                }
-                eco_stability_data.append(eco_stability)
-    
-    # Convert to DataFrame
-    eco_stability_df = pd.DataFrame(eco_stability_data) if eco_stability_data else pd.DataFrame()
-    
-    if not eco_stability_df.empty:
-        eco_stability_df.to_csv(f"{args.output}/eco_region_stability.csv", index=False)
-        
-        # Plot eco-region stability
-        plt.figure(figsize=(12, 6))
-        plt.plot(eco_stability_df['n_features'], eco_stability_df['f1_std_across_eco'], 'o-', color='red')
-        plt.xlabel('Number of Features')
-        plt.ylabel('Standard Deviation of F1 Scores Across Eco-regions')
-        plt.title('Eco-region F1-Score Stability by Feature Count')
-        plt.grid(True)
-        plt.savefig(f"{args.output}/eco_region_stability.png")
-        plt.close()
-    
-    # Calculate metrics per eco-region for the best model
-    eco_region_metrics_df = calculate_eco_region_metrics(rfecv.best_model_predictions_)
-    if not eco_region_metrics_df.empty:
-        eco_region_metrics_df.to_csv(f"{args.output}/eco_region_metrics.csv", index=False)
-        logger.info(f"Eco-region metrics saved to {args.output}/eco_region_metrics.csv")
     
     # Plot results
     metrics_df, summary_table = plot_feature_selection_results(rfecv, features, args.output)
@@ -953,16 +901,17 @@ def main():
         for feature in selected_features:
             f.write(f"- {feature}\n")
     
-    # Create comprehensive report
-    create_feature_selection_report(
-        rfecv,
-        features,
-        metrics_df,
-        summary_table,
-        eco_region_metrics_df,
-        eco_stability_df,
-        f"{args.output}/feature_selection_report.pdf"
-    )
+    # Save eco-region metrics if available
+    if hasattr(rfecv, 'best_model_eco_metrics') and rfecv.best_model_eco_metrics:
+        eco_metrics_df = pd.DataFrame([
+            {
+                'eco_region': region,
+                **metrics
+            }
+            for region, metrics in rfecv.best_model_eco_metrics.items()
+        ])
+        eco_metrics_df.to_csv(f"{args.output}/eco_region_metrics.csv", index=False)
+        logger.info(f"Eco-region metrics saved to {args.output}/eco_region_metrics.csv")
     
     # Report execution time
     elapsed_time = time.time() - start_time

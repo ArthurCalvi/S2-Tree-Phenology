@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --partition=prepost
 #SBATCH --hint=nomultithread
-#SBATCH --time=08:00:00
+#SBATCH --time=20:00:00
 #SBATCH --output=/lustre/fswork/projects/rech/ego/uyr48jk/slurm_logs/%x_%j.out
 #SBATCH --error=/lustre/fswork/projects/rech/ego/uyr48jk/slurm_logs/%x_%j.err
 
@@ -35,7 +35,8 @@ cd $WORK_DIR
 # You can add/modify these arguments as needed
 python $WORK_DIR/src/training/recursive_feature_selection.py \
     --output $FEATURE_SEL_DIR \
-    --min_features 6 \
+    --min_features 8 \
+    --step_sizes 6,5,4,3,2,1 \
     --dataset_path $RESULTS_DIR/datasets/training_datasets_pixels.parquet
 
 # To run in test mode with a smaller dataset, uncomment below:
