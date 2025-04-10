@@ -33,4 +33,4 @@ cd $WORK_DIR
 
 # Run the main training script
 # Add any command line arguments as needed
-python $WORK_DIR/src/training/train_phenology.py 
+python $WORK_DIR/src/training/train_rf_phenology_indice.py 

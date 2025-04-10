@@ -37,6 +37,26 @@ from collections import defaultdict
 import matplotlib.gridspec as gridspec
 from matplotlib.backends.backend_pdf import PdfPages
 from sklearn.base import clone
+import sys
+from pathlib import Path
+import math
+
+# Add the project root directory to the Python path (matching other scripts)
+try:
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.append(project_root)
+except NameError:
+    # Fallback if __file__ is not defined (e.g., interactive environment)
+    project_root = str(Path('.').resolve())
+    if project_root not in sys.path:
+        sys.path.append(project_root)
+
+# --- Imports from src package ---
+# Assuming the script is run as a module from the project root (python -m src.training...)
+from src.utils import unscale_feature, transform_circular_features
+# We might need constants directly later, add if needed:
+# from src.constants import INDICES, PHENOLOGY_MAPPING, DATASET_PATH etc.
 
 # Set up logging
 os.makedirs('logs', exist_ok=True)
@@ -62,9 +82,19 @@ DATASET_PATH = 'results/datasets/training_datasets_pixels.parquet'
 # Define the phenology mapping
 PHENOLOGY_MAPPING = {1: 'Deciduous', 2: 'Evergreen'}
 
+# Map feature suffixes to unscaling types
+FEATURE_TYPES_TO_UNSCALE = {
+    'amplitude_h1': 'amplitude',
+    'amplitude_h2': 'amplitude',
+    'phase_h1': 'phase', # Will be unscaled to radians [0, 2pi]
+    'phase_h2': 'phase',
+    'offset': 'offset',
+    'var_residual': 'variance'
+}
+
 def get_all_features():
     """
-    Get all features from all indices.
+    Get all features from all indices *after* circular transformation.
     """
     features = []
     for index in INDICES:
@@ -80,32 +110,7 @@ def get_all_features():
         ])
     return features
 
-def transform_circular_features(df):
-    """
-    Apply cos/sin transformation to phase features which are circular in nature.
-    This prevents the model from treating the phase as a linear feature.
-    """
-    logger.info("Applying cos/sin transformation to phase features...")
-    transformed_df = df.copy()
-    
-    # Apply transformation for each index
-    for index in tqdm(INDICES, desc="Transforming phase features"):
-        # Transform phase_h1
-        transformed_df[f'{index}_phase_h1_cos'] = np.cos(transformed_df[f'{index}_phase_h1'])
-        transformed_df[f'{index}_phase_h1_sin'] = np.sin(transformed_df[f'{index}_phase_h1'])
-        
-        # Transform phase_h2
-        transformed_df[f'{index}_phase_h2_cos'] = np.cos(transformed_df[f'{index}_phase_h2'])
-        transformed_df[f'{index}_phase_h2_sin'] = np.sin(transformed_df[f'{index}_phase_h2'])
-    
-    # Drop the original phase features
-    phase_cols = [col for col in transformed_df.columns if ('phase_h' in col and 
-                                                        not ('cos' in col or 'sin' in col))]
-    transformed_df = transformed_df.drop(columns=phase_cols)
-    
-    return transformed_df
-
-def create_eco_balanced_folds(df, n_splits=5, random_state=42):
+def create_eco_balanced_folds_df(df, n_splits=5, random_state=42):
     """
     Create folds that balance eco-region distribution while preserving tile integrity.
     This ensures that:
@@ -225,19 +230,19 @@ class CustomRFECV:
         self.ranking_ = None
         self.support_ = None
         self.n_features_ = None
-        self.cv_results_ = None
+        self.cv_results_ = None # Stores metrics per feature count
         self.fold_splits = None    # Store fold splits for later use
         
     def fit(self, X, y, df):
         """Fit the RFE model with cross-validation."""
-        logger.info(f"Starting recursive feature elimination with min {self.min_features_to_select} features")
+        logger.info(f"Starting recursive feature elimination with min {self.min_features_to_select} features...")
         
         n_features = X.shape[1]
         feature_names = X.columns.tolist()
         
         # Create eco-region balanced folds
         logger.info("Creating eco-region balanced folds...")
-        self.fold_splits = create_eco_balanced_folds(df, n_splits=self.cv)
+        self.fold_splits = create_eco_balanced_folds_df(df, n_splits=self.cv, random_state=42) # Pass random_state for consistency
         logger.info(f"Created {self.cv} folds successfully")
         
         # Initialize variables to store results
@@ -328,7 +333,7 @@ class CustomRFECV:
             if isinstance(self.step, list):
                 # Get appropriate step size based on how many features remain
                 remaining_steps = len(self.step) - len(self.cv_results_['n_features'])
-                step_idx = max(0, len(self.step) - remaining_steps - 1)
+                step_idx = min(max(0, len(self.step) - remaining_steps - 1), len(self.step) - 1)
                 n_to_eliminate = self.step[step_idx]
                 logger.info(f"Using step size {n_to_eliminate} (step {len(self.cv_results_['n_features'])+1})")
             elif isinstance(self.step, int):
@@ -853,9 +858,39 @@ def main():
         df = df_subset
         logger.info(f"Using subset of data: {len(df)} samples")
     
-    # Apply cos/sin transformation to circular features
-    df = transform_circular_features(df)
-    
+    # --- Unscale Features --- 
+    logger.info("Unscaling features to physical ranges...")
+    unscaled_count = 0
+    skipped_cols = []
+    df_copy = df.copy() # Work on a copy to avoid SettingWithCopyWarning
+    for index in tqdm(INDICES, desc="Unscaling Indices"):
+        for ftype_suffix, feature_type in FEATURE_TYPES_TO_UNSCALE.items():
+            col_name = f"{index}_{ftype_suffix}"
+            if col_name in df_copy.columns:
+                try:
+                    # Apply unscale_feature to the column
+                    df_copy[col_name] = unscale_feature(
+                        df_copy[col_name],
+                        feature_type=feature_type,
+                        index_name=index # Required for amplitude/offset
+                    )
+                    unscaled_count += 1
+                except Exception as e:
+                    logger.error(f"Error unscaling column {col_name}: {e}")
+                    skipped_cols.append(col_name)
+            else:
+                skipped_cols.append(col_name)
+    df = df_copy # Assign the modified copy back to df
+    logger.info(f"Unscaling complete. Processed {unscaled_count} columns.")
+    if skipped_cols:
+        unique_skipped = sorted(list(set(skipped_cols)))
+        # logger.debug(f"Skipped/Not Found {len(unique_skipped)} columns during unscaling: {unique_skipped[:5]}...") 
+
+    # --- Apply Circular Transformation (using imported function) ---
+    logger.info("Applying circular transformation to unscaled (radian) phase features...")
+    df = transform_circular_features(df, INDICES) # Use imported function
+    logger.info("Circular transformation complete.")
+
     # Print dataset info
     logger.info("\n=== Dataset Info ===")
     logger.info(f"Phenology distribution:\n{df['phenology'].value_counts().to_string()}")

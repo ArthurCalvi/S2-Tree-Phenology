@@ -15,6 +15,29 @@ import datetime
 from sklearn.utils import shuffle
 import argparse
 from matplotlib.backends.backend_pdf import PdfPages
+import sys
+from pathlib import Path
+
+# Add the project root directory to the Python path (matching other scripts)
+try:
+    project_root = str(Path(__file__).resolve().parent.parent.parent)
+    if project_root not in sys.path:
+        sys.path.append(project_root)
+except NameError:
+    # Fallback if __file__ is not defined (e.g., interactive environment)
+    project_root = str(Path('.').resolve())
+    if project_root not in sys.path:
+        sys.path.append(project_root)
+
+# Import utility functions
+from src.utils import (
+    unscale_feature,
+    transform_circular_features,
+    compute_metrics,
+    create_eco_balanced_folds_df,
+    display_fold_distribution,
+    format_confusion_matrix
+)
 
 # Set up logging
 logging.basicConfig(
@@ -36,6 +59,16 @@ INDICES = ['ndvi', 'evi', 'nbr', 'crswir']
 # Define the path to the dataset
 DATASET_PATH = 'results/datasets/training_datasets_pixels.parquet'
 
+# Map feature suffixes to unscaling types
+FEATURE_TYPES_TO_UNSCALE = {
+    'amplitude_h1': 'amplitude',
+    'amplitude_h2': 'amplitude',
+    'phase_h1': 'phase', # Will be unscaled to radians [0, 2pi]
+    'phase_h2': 'phase',
+    'offset': 'offset',
+    'var_residual': 'variance'
+}
+
 # Define the phenology mapping
 PHENOLOGY_MAPPING = {1: 'Deciduous', 2: 'Evergreen'}
 
@@ -55,83 +88,6 @@ def get_features(index):
         f'{index}_offset',
         f'{index}_var_residual'
     ]
-
-def transform_circular_features(df):
-    """
-    Apply cos/sin transformation to phase features which are circular in nature.
-    This prevents the model from treating the phase as a linear feature.
-    """
-    logger.info("Applying cos/sin transformation to phase features...")
-    transformed_df = df.copy()
-    
-    # Apply transformation for each index
-    for index in tqdm(INDICES, desc="Transforming phase features"):
-        # Transform phase_h1
-        transformed_df[f'{index}_phase_h1_cos'] = np.cos(transformed_df[f'{index}_phase_h1'])
-        transformed_df[f'{index}_phase_h1_sin'] = np.sin(transformed_df[f'{index}_phase_h1'])
-        
-        # Transform phase_h2
-        transformed_df[f'{index}_phase_h2_cos'] = np.cos(transformed_df[f'{index}_phase_h2'])
-        transformed_df[f'{index}_phase_h2_sin'] = np.sin(transformed_df[f'{index}_phase_h2'])
-    
-    return transformed_df
-
-def compute_metrics(y_true, y_pred):
-    """Compute classification metrics."""
-    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
-    
-    metrics = {
-        'tp': tp,
-        'fp': fp,
-        'tn': tn,
-        'fn': fn,
-        'accuracy': (tp + tn) / (tp + tn + fp + fn),
-        'precision': tp / (tp + fp) if (tp + fp) > 0 else 0,
-        'recall': tp / (tp + fn) if (tp + fn) > 0 else 0,
-        'f1_score': f1_score(y_true, y_pred)
-    }
-    
-    return metrics
-
-def display_fold_distribution(train_idx, val_idx, df, fold):
-    """Display training and validation distribution per eco-region."""
-    train_df = df.iloc[train_idx]
-    val_df = df.iloc[val_idx]
-    
-    # Calculate distribution per eco-region
-    train_dist = train_df.groupby('eco_region').size()
-    val_dist = val_df.groupby('eco_region').size()
-    
-    # Calculate percentages
-    train_pct = train_dist / train_dist.sum() * 100
-    val_pct = val_dist / val_dist.sum() * 100
-    
-    # Calculate train-val ratio
-    ratio = pd.Series(index=train_dist.index, dtype=float)
-    for region in train_dist.index:
-        if region in val_dist and val_dist[region] > 0:
-            ratio[region] = train_dist[region] / val_dist[region]
-        else:
-            ratio[region] = float('inf')
-    
-    # Combine into a single DataFrame
-    distribution = pd.DataFrame({
-        'Train Count': train_dist,
-        'Train %': train_pct,
-        'Val Count': val_dist.reindex(train_dist.index, fill_value=0),
-        'Val %': val_pct.reindex(train_dist.index, fill_value=0),
-        'Total Count': train_dist + val_dist.reindex(train_dist.index, fill_value=0),
-        'Train/Val Ratio': ratio
-    })
-    
-    logger.info(f"\n--- Fold {fold+1} Distribution ---")
-    logger.info(f"Training set: {len(train_idx)} samples")
-    logger.info(f"Validation set: {len(val_idx)} samples")
-    logger.info(f"Train/Val ratio: {len(train_idx)/len(val_idx):.2f}")
-    logger.info("\nDistribution per eco-region:")
-    logger.info("\n" + distribution.round(2).to_string())
-    
-    return distribution
 
 def plot_feature_importance(importances, features, index, output_dir='results/models'):
     """Plot and save feature importance."""
@@ -159,243 +115,6 @@ def plot_feature_importance(importances, features, index, output_dir='results/mo
     plt.close()
     
     return formatted_features, importances[indices]
-
-def format_confusion_matrix(cm, labels=None):
-    """Format confusion matrix as text for display."""
-    if labels is None:
-        labels = ["Negative", "Positive"]
-    
-    tn, fp, fn, tp = cm.ravel()
-    
-    cm_text = f"""
-Confusion Matrix:
----------------------------
-              |  Predicted
-    Actual    | {labels[0]:^10} | {labels[1]:^10}
----------------------------
-{labels[0]:^12} | {tn:^10} | {fp:^10}
-{labels[1]:^12} | {fn:^10} | {tp:^10}
----------------------------
-"""
-    return cm_text
-
-def create_eco_balanced_folds(df, n_splits=5, random_state=42):
-    """
-    Create folds that balance eco-region distribution while preserving tile integrity.
-    This ensures that:
-    1. Tiles are never split between training and validation sets
-    2. The distribution of eco-regions in each fold is similar to the overall distribution
-    """
-    logger.info("Creating eco-region balanced folds...")
-    
-    # Reset the index to ensure we work with the current DataFrame indices
-    df = df.reset_index(drop=True)
-    
-    # Get unique eco-regions and their overall distribution
-    eco_regions = df['eco_region'].unique()
-    overall_eco_dist = df['eco_region'].value_counts(normalize=True)
-    
-    # Initialize lists to store folds
-    all_folds = []
-    for _ in range(n_splits):
-        all_folds.append({'train_idx': [], 'val_idx': []})
-    
-    # Process each eco-region separately
-    for eco_region in tqdm(eco_regions, desc="Processing eco-regions for balanced folds"):
-        # Filter data for this eco-region
-        eco_df = df[df['eco_region'] == eco_region]
-        
-        # Get unique tiles for this eco-region
-        eco_tiles = eco_df['tile_id'].unique()
-        
-        # Shuffle tiles to randomize
-        eco_tiles = shuffle(eco_tiles, random_state=random_state)
-        
-        # Split tiles into n_splits groups
-        tile_groups = np.array_split(eco_tiles, n_splits)
-        
-        # Create folds for this eco-region
-        for fold_idx in range(n_splits):
-            # Validation tiles for this fold
-            val_tiles = tile_groups[fold_idx]
-            
-            # Get indices for validation
-            val_mask = eco_df['tile_id'].isin(val_tiles)
-            val_indices = eco_df.index[val_mask].tolist()
-            
-            # Get indices for training (all other tiles)
-            train_tiles = np.concatenate([tile_groups[i] for i in range(n_splits) if i != fold_idx])
-            train_mask = eco_df['tile_id'].isin(train_tiles)
-            train_indices = eco_df.index[train_mask].tolist()
-            
-            # Add to fold
-            all_folds[fold_idx]['train_idx'].extend(train_indices)
-            all_folds[fold_idx]['val_idx'].extend(val_indices)
-    
-    # Convert to array format and validate
-    fold_splits = []
-    for fold in all_folds:
-        train_idx = np.array(fold['train_idx'])
-        val_idx = np.array(fold['val_idx'])
-        
-        # Check for overlap
-        assert len(np.intersect1d(train_idx, val_idx)) == 0, "Overlap detected between train and validation indices"
-        
-        # Check that all indices are accounted for
-        assert len(train_idx) + len(val_idx) == len(df), "Some indices are missing in the fold split"
-        
-        fold_splits.append((train_idx, val_idx))
-    
-    # Calculate and display eco-region distribution per fold
-    logger.info("Eco-region distribution per fold:")
-    fold_eco_dists = []
-    
-    for fold_idx, (train_idx, val_idx) in enumerate(fold_splits):
-        train_eco_dist = df.iloc[train_idx]['eco_region'].value_counts(normalize=True)
-        val_eco_dist = df.iloc[val_idx]['eco_region'].value_counts(normalize=True)
-        
-        fold_eco_dists.append({
-            'fold': fold_idx + 1,
-            'train_dist': train_eco_dist,
-            'val_dist': val_eco_dist
-        })
-        
-        logger.info(f"Fold {fold_idx + 1}:")
-        logger.info(f"Training distribution: \n{train_eco_dist.to_string()}")
-        logger.info(f"Validation distribution: \n{val_eco_dist.to_string()}")
-        logger.info("---")
-    
-    return fold_splits
-
-def train_and_evaluate(df, features, index_name, target='phenology', n_splits=5):
-    """
-    Train RandomForest with 5-fold cross-validation based on tile_id
-    and evaluate performance per eco-region.
-    """
-    logger.info(f"Starting training for {index_name.upper()} with {len(features)} features")
-    
-    # Prepare data
-    X = df[features]
-    y = df[target]
-    
-    # Create eco-region balanced folds
-    fold_splits = create_eco_balanced_folds(df, n_splits=n_splits)
-    
-    # Store results
-    results_per_fold = []
-    results_per_ecoregion = defaultdict(list)
-    
-    # Store all predictions for confusion matrix
-    all_true = []
-    all_pred = []
-    
-    # Store feature importances
-    feature_importances = []
-    
-    # Perform cross-validation
-    for fold, (train_idx, val_idx) in enumerate(tqdm(fold_splits, desc=f"Cross-validation folds for {index_name}")):
-        logger.info(f"\n=== Fold {fold+1}/{n_splits} ===")
-        
-        # Display fold distribution
-        distribution = display_fold_distribution(train_idx, val_idx, df, fold)
-        
-        # Split data
-        X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
-        y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
-        
-        # Apply sample weights if available
-        sample_weights = None
-        if 'weight' in df.columns:
-            sample_weights = df.iloc[train_idx]['weight'].values
-            sample_weights_stats = {
-                'min': sample_weights.min(),
-                'max': sample_weights.max(),
-                'mean': sample_weights.mean(),
-                'median': np.median(sample_weights),
-                'non_zero': np.sum(sample_weights > 0),
-                'total': len(sample_weights)
-            }
-            logger.info(f"Using sample weights from dataset: {sample_weights_stats}")
-        
-        # Train model
-        logger.info(f"Training RandomForest on {len(X_train)} samples...")
-        model = RandomForestClassifier(n_estimators=30, random_state=42, n_jobs=-1, class_weight='balanced')
-        model.fit(X_train, y_train, sample_weight=sample_weights)
-        
-        # Store feature importance
-        feature_importances.append(model.feature_importances_)
-        
-        # Make predictions
-        y_pred = model.predict(X_val)
-        
-        # Store predictions for overall confusion matrix
-        all_true.extend(y_val)
-        all_pred.extend(y_pred)
-        
-        # Compute overall metrics
-        overall_metrics = compute_metrics(y_val, y_pred)
-        overall_metrics['fold'] = fold + 1
-        results_per_fold.append(overall_metrics)
-        
-        logger.info(f"Overall F1 Score: {overall_metrics['f1_score']:.4f}")
-        
-        # Compute metrics per eco-region
-        eco_regions = df.iloc[val_idx]['eco_region'].unique()
-        
-        for eco_region in eco_regions:
-            eco_mask = df.iloc[val_idx]['eco_region'] == eco_region
-            if sum(eco_mask) > 0:
-                eco_y_val = y_val[eco_mask]
-                eco_y_pred = y_pred[eco_mask]
-                
-                eco_metrics = compute_metrics(eco_y_val, eco_y_pred)
-                eco_metrics['fold'] = fold + 1
-                eco_metrics['eco_region'] = eco_region
-                results_per_ecoregion[eco_region].append(eco_metrics)
-                
-                logger.info(f"  {eco_region} F1 Score: {eco_metrics['f1_score']:.4f} (on {len(eco_y_val)} samples)")
-    
-    # Aggregate results
-    results_df = pd.DataFrame(results_per_fold)
-    logger.info("\n=== Overall Results ===")
-    logger.info(f"Average F1 Score: {results_df['f1_score'].mean():.4f} ± {results_df['f1_score'].std():.4f}")
-    
-    # Aggregate eco-region results
-    eco_results = []
-    for eco_region, metrics_list in results_per_ecoregion.items():
-        metrics_df = pd.DataFrame(metrics_list)
-        avg_metrics = {
-            'eco_region': eco_region,
-            'f1_score': metrics_df['f1_score'].mean(),
-            'f1_std': metrics_df['f1_score'].std(),
-            'precision': metrics_df['precision'].mean(),
-            'recall': metrics_df['recall'].mean(),
-        }
-        eco_results.append(avg_metrics)
-    
-    eco_results_df = pd.DataFrame(eco_results).sort_values('f1_score', ascending=False)
-    logger.info("\n=== Results per Eco-Region ===")
-    logger.info("\n" + eco_results_df[['eco_region', 'f1_score', 'f1_std', 'precision', 'recall']].round(4).to_string())
-    
-    # Generate text confusion matrix
-    cm = confusion_matrix(all_true, all_pred)
-    cm_text = format_confusion_matrix(cm, labels=[f'{PHENOLOGY_MAPPING[1]} (1)', f'{PHENOLOGY_MAPPING[2]} (2)'])
-    logger.info("\n" + cm_text)
-    
-    # Calculate confusion matrix stats
-    tn, fp, fn, tp = cm.ravel()
-    logger.info("\n=== Confusion Matrix Stats ===")
-    logger.info(f"True Positives (TP): {tp}")
-    logger.info(f"False Positives (FP): {fp}")
-    logger.info(f"True Negatives (TN): {tn}")
-    logger.info(f"False Negatives (FN): {fn}")
-    logger.info(f"Accuracy: {(tp+tn)/(tp+tn+fp+fn):.4f}")
-    
-    # Plot average feature importance
-    avg_importance = np.mean(feature_importances, axis=0)
-    formatted_features, feature_importances_sorted = plot_feature_importance(avg_importance, features, index_name)
-    
-    return results_df, eco_results_df, cm, (formatted_features, feature_importances_sorted)
 
 def create_pdf_report(summary_df, all_results, output_path='results/models/phenology_report.pdf'):
     """Create a comprehensive PDF report of all results using matplotlib PdfPages."""
@@ -540,6 +259,142 @@ def create_pdf_report(summary_df, all_results, output_path='results/models/pheno
     
     logger.info(f"PDF report generated at: {output_path}")
 
+def train_and_evaluate(df, features, index_name, target='phenology', n_splits=5):
+    """
+    Train RandomForest with 5-fold cross-validation based on tile_id
+    and evaluate performance per eco-region.
+    """
+    logger.info(f"Starting training for {index_name.upper()} with {len(features)} features")
+    
+    # Prepare data
+    X = df[features]
+    y = df[target]
+    
+    # Create eco-region balanced folds
+    fold_splits = create_eco_balanced_folds_df(df, n_splits=n_splits, random_state=42)
+    
+    # Store results
+    results_per_fold = []
+    results_per_ecoregion = defaultdict(list)
+    
+    # Store all predictions for confusion matrix
+    all_true = []
+    all_pred = []
+    
+    # Store feature importances
+    feature_importances = []
+    
+    # Perform cross-validation
+    for fold, (train_idx, val_idx) in enumerate(tqdm(fold_splits, desc=f"Cross-validation folds for {index_name}")):
+        logger.info(f"\n=== Fold {fold+1}/{n_splits} ===")
+        
+        # Display fold distribution
+        distribution = display_fold_distribution(train_idx, val_idx, df, fold)
+        logger.info(f"\n--- Fold {fold+1} Distribution ---")
+        logger.info(f"Training set: {len(train_idx)} samples")
+        logger.info(f"Validation set: {len(val_idx)} samples")
+        logger.info(f"Train/Val ratio: {len(train_idx)/len(val_idx):.2f}")
+        logger.info("\nDistribution per eco-region:")
+        logger.info("\n" + distribution.round(2).to_string())
+        
+        # Split data
+        X_train, X_val = X.iloc[train_idx], X.iloc[val_idx]
+        y_train, y_val = y.iloc[train_idx], y.iloc[val_idx]
+        
+        # Apply sample weights if available
+        sample_weights = None
+        if 'weight' in df.columns:
+            sample_weights = df.iloc[train_idx]['weight'].values
+            sample_weights_stats = {
+                'min': sample_weights.min(),
+                'max': sample_weights.max(),
+                'mean': sample_weights.mean(),
+                'median': np.median(sample_weights),
+                'non_zero': np.sum(sample_weights > 0),
+                'total': len(sample_weights)
+            }
+            logger.info(f"Using sample weights from dataset: {sample_weights_stats}")
+        
+        # Train model
+        logger.info(f"Training RandomForest on {len(X_train)} samples...")
+        model = RandomForestClassifier(n_estimators=30, random_state=42, n_jobs=-1, class_weight='balanced')
+        model.fit(X_train, y_train, sample_weight=sample_weights)
+        
+        # Store feature importance
+        feature_importances.append(model.feature_importances_)
+        
+        # Make predictions
+        y_pred = model.predict(X_val)
+        
+        # Store predictions for overall confusion matrix
+        all_true.extend(y_val)
+        all_pred.extend(y_pred)
+        
+        # Compute overall metrics
+        overall_metrics = compute_metrics(y_val, y_pred)
+        overall_metrics['fold'] = fold + 1
+        results_per_fold.append(overall_metrics)
+        
+        logger.info(f"Overall F1 Score: {overall_metrics['f1_score']:.4f}")
+        
+        # Compute metrics per eco-region
+        eco_regions = df.iloc[val_idx]['eco_region'].unique()
+        
+        for eco_region in eco_regions:
+            eco_mask = df.iloc[val_idx]['eco_region'] == eco_region
+            if sum(eco_mask) > 0:
+                eco_y_val = y_val[eco_mask]
+                eco_y_pred = y_pred[eco_mask]
+                
+                eco_metrics = compute_metrics(eco_y_val, eco_y_pred)
+                eco_metrics['fold'] = fold + 1
+                eco_metrics['eco_region'] = eco_region
+                results_per_ecoregion[eco_region].append(eco_metrics)
+                
+                logger.info(f"  {eco_region} F1 Score: {eco_metrics['f1_score']:.4f} (on {len(eco_y_val)} samples)")
+    
+    # Aggregate results
+    results_df = pd.DataFrame(results_per_fold)
+    logger.info("\n=== Overall Results ===")
+    logger.info(f"Average F1 Score: {results_df['f1_score'].mean():.4f} ± {results_df['f1_score'].std():.4f}")
+    
+    # Aggregate eco-region results
+    eco_results = []
+    for eco_region, metrics_list in results_per_ecoregion.items():
+        metrics_df = pd.DataFrame(metrics_list)
+        avg_metrics = {
+            'eco_region': eco_region,
+            'f1_score': metrics_df['f1_score'].mean(),
+            'f1_std': metrics_df['f1_score'].std(),
+            'precision': metrics_df['precision'].mean(),
+            'recall': metrics_df['recall'].mean(),
+        }
+        eco_results.append(avg_metrics)
+    
+    eco_results_df = pd.DataFrame(eco_results).sort_values('f1_score', ascending=False)
+    logger.info("\n=== Results per Eco-Region ===")
+    logger.info("\n" + eco_results_df[['eco_region', 'f1_score', 'f1_std', 'precision', 'recall']].round(4).to_string())
+    
+    # Generate text confusion matrix
+    cm = confusion_matrix(all_true, all_pred)
+    cm_text = format_confusion_matrix(cm, labels=[f'{PHENOLOGY_MAPPING[1]} (1)', f'{PHENOLOGY_MAPPING[2]} (2)'])
+    logger.info("\n" + cm_text)
+    
+    # Calculate confusion matrix stats
+    tn, fp, fn, tp = cm.ravel()
+    logger.info("\n=== Confusion Matrix Stats ===")
+    logger.info(f"True Positives (TP): {tp}")
+    logger.info(f"False Positives (FP): {fp}")
+    logger.info(f"True Negatives (TN): {tn}")
+    logger.info(f"False Negatives (FN): {fn}")
+    logger.info(f"Accuracy: {(tp+tn)/(tp+tn+fp+fn):.4f}")
+    
+    # Plot average feature importance
+    avg_importance = np.mean(feature_importances, axis=0)
+    formatted_features, feature_importances_sorted = plot_feature_importance(avg_importance, features, index_name)
+    
+    return results_df, eco_results_df, cm, (formatted_features, feature_importances_sorted)
+
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser(description='Train phenology classification models')
@@ -588,8 +443,37 @@ def main():
     else:
         logger.warning("No weight column found in dataset")
     
+    # --- Unscale Features --- 
+    logger.info("Unscaling features to physical ranges...")
+    unscaled_count = 0
+    skipped_cols = []
+    df_copy = df.copy() # Work on a copy
+    for index in tqdm(INDICES, desc="Unscaling Indices"):
+        for ftype_suffix, feature_type in FEATURE_TYPES_TO_UNSCALE.items():
+            col_name = f"{index}_{ftype_suffix}"
+            if col_name in df_copy.columns:
+                try:
+                    df_copy[col_name] = unscale_feature(
+                        df_copy[col_name],
+                        feature_type=feature_type,
+                        index_name=index
+                    )
+                    unscaled_count += 1
+                except Exception as e:
+                    logger.error(f"Error unscaling column {col_name}: {e}")
+                    skipped_cols.append(col_name)
+            else:
+                skipped_cols.append(col_name)
+    df = df_copy # Assign back the modified DataFrame
+    logger.info(f"Unscaling complete. Processed {unscaled_count} columns.")
+    if skipped_cols:
+        unique_skipped = sorted(list(set(skipped_cols)))
+        # logger.debug(f"Skipped/Not Found {len(unique_skipped)} columns during unscaling: {unique_skipped[:5]}...")
+
     # Apply cos/sin transformation to phase features
-    df = transform_circular_features(df)
+    logger.info("Applying circular transformation to unscaled (radian) phase features...")
+    df = transform_circular_features(df, INDICES)
+    logger.info("Circular transformation complete.")
     
     # Print dataset info
     logger.info("\n=== Dataset Info ===")
@@ -651,7 +535,7 @@ def main():
     plt.savefig("results/models/phenology_indices_comparison.png")
     plt.close()
     
-    # Create PDF report (changed from creating separate HTML file and images)
+    # Create PDF report
     create_pdf_report(summary_df, all_results, "results/models/phenology_report.pdf")
     
     logger.info("Training script completed successfully")

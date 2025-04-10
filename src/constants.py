@@ -152,3 +152,48 @@ EFFECTIVE_FOREST_AREA_BY_REGION = {
     "Semi-Oceanic North Center": 44940.11,  # Total area: 149800.37 km² * forest ratio: 0.30
     "Vosges": 7002.68,  # Total area: 9336.91 km² * forest ratio: 0.75
 }
+
+# === U-Net Specific Constants ===
+
+# Define the phenology mapping (label -> name)
+PHENOLOGY_MAPPING = {0: 'No Data', 1: 'Deciduous', 2: 'Evergreen'}
+
+# Define mapping from feature names to 1-based band indices in the TIFF file
+# This assumes the band order described previously
+ALL_FEATURE_BAND_INDICES = {
+    'ndvi_amplitude_h1': 1, 'ndvi_amplitude_h2': 2, 'ndvi_phase_h1': 3, 'ndvi_phase_h2': 4, 'ndvi_offset': 5, 'ndvi_var_residual': 6,
+    'evi_amplitude_h1': 7, 'evi_amplitude_h2': 8, 'evi_phase_h1': 9, 'evi_phase_h2': 10, 'evi_offset': 11, 'evi_var_residual': 12,
+    'nbr_amplitude_h1': 13, 'nbr_amplitude_h2': 14, 'nbr_phase_h1': 15, 'nbr_phase_h2': 16, 'nbr_offset': 17, 'nbr_var_residual': 18,
+    'crswir_amplitude_h1': 19, 'crswir_amplitude_h2': 20, 'crswir_phase_h1': 21, 'crswir_phase_h2': 22, 'crswir_offset': 23, 'crswir_var_residual': 24,
+}
+PHENOLOGY_BAND = 25 # Phenology label is the 25th band
+
+# Map feature suffixes to unscaling types
+FEATURE_SUFFIX_TO_TYPE = {
+    '_amplitude_h1': 'amplitude',
+    '_amplitude_h2': 'amplitude',
+    '_phase_h1': 'phase',
+    '_phase_h2': 'phase',
+    '_offset': 'offset',
+    '_var_residual': 'variance'
+}
+
+# Base feature names for each index (before cos/sin transform)
+BASE_FEATURE_NAMES_PER_INDEX = {
+    'ndvi': ['ndvi_amplitude_h1', 'ndvi_amplitude_h2', 'ndvi_phase_h1', 'ndvi_phase_h2', 'ndvi_offset', 'ndvi_var_residual'],
+    'evi': ['evi_amplitude_h1', 'evi_amplitude_h2', 'evi_phase_h1', 'evi_phase_h2', 'evi_offset', 'evi_var_residual'],
+    'nbr': ['nbr_amplitude_h1', 'nbr_amplitude_h2', 'nbr_phase_h1', 'nbr_phase_h2', 'nbr_offset', 'nbr_var_residual'],
+    'crswir': ['crswir_amplitude_h1', 'crswir_amplitude_h2', 'crswir_phase_h1', 'crswir_phase_h2', 'crswir_offset', 'crswir_var_residual']
+}
+
+# Output feature names (after cos/sin transform)
+OUTPUT_FEATURE_NAMES_PER_INDEX = {
+    'ndvi': ['ndvi_amplitude_h1', 'ndvi_amplitude_h2', 'ndvi_phase_h1_cos', 'ndvi_phase_h1_sin', 'ndvi_phase_h2_cos', 'ndvi_phase_h2_sin', 'ndvi_offset', 'ndvi_var_residual'],
+    'evi': ['evi_amplitude_h1', 'evi_amplitude_h2', 'evi_phase_h1_cos', 'evi_phase_h1_sin', 'evi_phase_h2_cos', 'evi_phase_h2_sin', 'evi_offset', 'evi_var_residual'],
+    'nbr': ['nbr_amplitude_h1', 'nbr_amplitude_h2', 'nbr_phase_h1_cos', 'nbr_phase_h1_sin', 'nbr_phase_h2_cos', 'nbr_phase_h2_sin', 'nbr_offset', 'nbr_var_residual'],
+    'crswir': ['crswir_amplitude_h1', 'crswir_amplitude_h2', 'crswir_phase_h1_cos', 'crswir_phase_h1_sin', 'crswir_phase_h2_cos', 'crswir_phase_h2_sin', 'crswir_offset', 'crswir_var_residual']
+}
+
+# Identify phase features for transformation
+PHASE_FEATURE_SUFFIXES = ['_phase_h1', '_phase_h2']
+PHASE_TRANSFORM_SUFFIXES = ['_cos', '_sin']
