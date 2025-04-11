@@ -33,7 +33,7 @@ cd $WORK_DIR
 
 # Run the training script with selected features
 python $WORK_DIR/src/training/train_lr_selected_features.py \
-    --features "ndvi_amplitude_h1,ndvi_offset,ndvi_var_residual,nbr_amplitude_h1,nbr_amplitude_h2,nbr_offset,nbr_var_residual,crswir_amplitude_h1,crswir_offset,crswir_var_residual" \
+    --features "ndvi_amplitude_h1,ndvi_phase_h1_cos,ndvi_phase_h1_sin,ndvi_phase_h2_sin,ndvi_offset,nbr_amplitude_h1,nbr_phase_h1_cos,nbr_phase_h2_cos,nbr_offset,nbr_var_residual,crswir_phase_h1_cos,crswir_phase_h2_cos,crswir_offset,crswir_var_residual" \
     --output_dir $FINAL_MODEL_DIR \
     --model_name "logistic_phenology_model_selected_features" \
     --metrics_name "logistic_phenology_metrics_selected_features.json" \

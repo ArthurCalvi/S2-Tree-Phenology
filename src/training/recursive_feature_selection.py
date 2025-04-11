@@ -25,7 +25,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import RFECV
-from sklearn.metrics import f1_score, confusion_matrix, classification_report, precision_score, recall_score
 from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
 from sklearn.utils import shuffle
 from tqdm import tqdm
@@ -55,6 +54,8 @@ except NameError:
 # --- Imports from src package ---
 # Assuming the script is run as a module from the project root (python -m src.training...)
 from src.utils import unscale_feature, transform_circular_features
+# Import the necessary utility functions for folds and metrics
+from src.utils import create_eco_balanced_folds_df, compute_metrics
 # We might need constants directly later, add if needed:
 # from src.constants import INDICES, PHENOLOGY_MAPPING, DATASET_PATH etc.
 
@@ -110,111 +111,6 @@ def get_all_features():
         ])
     return features
 
-def create_eco_balanced_folds_df(df, n_splits=5, random_state=42):
-    """
-    Create folds that balance eco-region distribution while preserving tile integrity.
-    This ensures that:
-    1. Tiles are never split between training and validation sets
-    2. The distribution of eco-regions in each fold is similar to the overall distribution
-    """
-    logger.info("Creating eco-region balanced folds...")
-    
-    # Reset the index to ensure we work with the current DataFrame indices
-    df = df.reset_index(drop=True)
-    
-    # Get unique eco-regions and their overall distribution
-    eco_regions = df['eco_region'].unique()
-    overall_eco_dist = df['eco_region'].value_counts(normalize=True)
-    
-    # Initialize lists to store folds
-    all_folds = []
-    for _ in range(n_splits):
-        all_folds.append({'train_idx': [], 'val_idx': []})
-    
-    # Process each eco-region separately
-    for eco_region in tqdm(eco_regions, desc="Processing eco-regions for balanced folds"):
-        # Filter data for this eco-region
-        eco_df = df[df['eco_region'] == eco_region]
-        
-        # Get unique tiles for this eco-region
-        eco_tiles = eco_df['tile_id'].unique()
-        
-        # Shuffle tiles to randomize
-        eco_tiles = shuffle(eco_tiles, random_state=random_state)
-        
-        # Split tiles into n_splits groups
-        tile_groups = np.array_split(eco_tiles, n_splits)
-        
-        # Create folds for this eco-region
-        for fold_idx in range(n_splits):
-            # Validation tiles for this fold
-            val_tiles = tile_groups[fold_idx]
-            
-            # Get indices for validation
-            val_mask = eco_df['tile_id'].isin(val_tiles)
-            val_indices = eco_df.index[val_mask].tolist()
-            
-            # Get indices for training (all other tiles)
-            train_tiles = np.concatenate([tile_groups[i] for i in range(n_splits) if i != fold_idx])
-            train_mask = eco_df['tile_id'].isin(train_tiles)
-            train_indices = eco_df.index[train_mask].tolist()
-            
-            # Add to fold
-            all_folds[fold_idx]['train_idx'].extend(train_indices)
-            all_folds[fold_idx]['val_idx'].extend(val_indices)
-    
-    # Convert to array format and validate
-    fold_splits = []
-    for fold in all_folds:
-        train_idx = np.array(fold['train_idx'])
-        val_idx = np.array(fold['val_idx'])
-        
-        # Check for overlap
-        assert len(np.intersect1d(train_idx, val_idx)) == 0, "Overlap detected between train and validation indices"
-        
-        # Check that all indices are accounted for
-        assert len(train_idx) + len(val_idx) == len(df), "Some indices are missing in the fold split"
-        
-        fold_splits.append((train_idx, val_idx))
-    
-    # Calculate and display eco-region distribution per fold
-    logger.info("Eco-region distribution per fold:")
-    fold_eco_dists = []
-    
-    for fold_idx, (train_idx, val_idx) in enumerate(fold_splits):
-        train_eco_dist = df.iloc[train_idx]['eco_region'].value_counts(normalize=True)
-        val_eco_dist = df.iloc[val_idx]['eco_region'].value_counts(normalize=True)
-        
-        fold_eco_dists.append({
-            'fold': fold_idx + 1,
-            'train_dist': train_eco_dist,
-            'val_dist': val_eco_dist
-        })
-        
-        logger.info(f"Fold {fold_idx + 1}:")
-        logger.info(f"Training distribution: \n{train_eco_dist.to_string()}")
-        logger.info(f"Validation distribution: \n{val_eco_dist.to_string()}")
-        logger.info("---")
-    
-    return fold_splits
-
-def compute_metrics(y_true, y_pred):
-    """Compute classification metrics."""
-    tn, fp, fn, tp = confusion_matrix(y_true, y_pred).ravel()
-    
-    metrics = {
-        'tp': tp,
-        'fp': fp,
-        'tn': tn,
-        'fn': fn,
-        'accuracy': (tp + tn) / (tp + tn + fp + fn),
-        'precision': precision_score(y_true, y_pred),
-        'recall': recall_score(y_true, y_pred),
-        'f1_score': f1_score(y_true, y_pred)
-    }
-    
-    return metrics
-
 class CustomRFECV:
     """
     Custom Recursive Feature Elimination with Cross-Validation 
@@ -232,7 +128,8 @@ class CustomRFECV:
         self.n_features_ = None
         self.cv_results_ = None # Stores metrics per feature count
         self.fold_splits = None    # Store fold splits for later use
-        
+        self.best_model_eco_metrics = None # Store eco-region metrics for the best model
+
     def fit(self, X, y, df):
         """Fit the RFE model with cross-validation."""
         logger.info(f"Starting recursive feature elimination with min {self.min_features_to_select} features...")
@@ -240,8 +137,8 @@ class CustomRFECV:
         n_features = X.shape[1]
         feature_names = X.columns.tolist()
         
-        # Create eco-region balanced folds
-        logger.info("Creating eco-region balanced folds...")
+        # Create eco-region balanced folds using imported function
+        logger.info("Creating eco-region balanced folds using src.utils...")
         self.fold_splits = create_eco_balanced_folds_df(df, n_splits=self.cv, random_state=42) # Pass random_state for consistency
         logger.info(f"Created {self.cv} folds successfully")
         
@@ -259,12 +156,12 @@ class CustomRFECV:
         support = np.ones(n_features, dtype=bool)
         current_n_features = n_features
         
-        while current_n_features > self.min_features_to_select:
+        while current_n_features >= self.min_features_to_select: # Adjusted loop condition
             # Current feature set
             current_features = [f for i, f in enumerate(feature_names) if support[i]]
             
             logger.info(f"Evaluating with {current_n_features} features")
-            logger.info(f"Current features: {current_features}")
+            # logger.debug(f"Current features: {current_features}") # Reduced verbosity
             
             # Cross-validation scores for this feature set
             fold_metrics = []
@@ -272,7 +169,7 @@ class CustomRFECV:
             
             # For each fold
             for fold_idx, (train_idx, val_idx) in enumerate(tqdm(self.fold_splits, desc=f"Cross-validation with {current_n_features} features")):
-                logger.info(f"Processing fold {fold_idx+1}/{self.cv} with {len(train_idx)} training samples and {len(val_idx)} validation samples")
+                # logger.debug(f"Processing fold {fold_idx+1}/{self.cv} with {len(train_idx)} train, {len(val_idx)} val samples")
                 
                 # Split data
                 X_train = X.iloc[train_idx][current_features]
@@ -280,7 +177,7 @@ class CustomRFECV:
                 y_train = y.iloc[train_idx]
                 y_val = y.iloc[val_idx]
                 
-                logger.info(f"Fold {fold_idx+1} - Training data shape: {X_train.shape}, Validation data shape: {X_val.shape}")
+                # logger.debug(f"Fold {fold_idx+1} - Training data shape: {X_train.shape}, Validation data shape: {X_val.shape}")
                 
                 # Apply sample weights if available
                 sample_weights = None
@@ -288,24 +185,24 @@ class CustomRFECV:
                     sample_weights = df.iloc[train_idx]['weight'].values
                 
                 # Train model
-                logger.info(f"Fold {fold_idx+1} - Training Random Forest model...")
-                model = self.estimator
+                # logger.debug(f"Fold {fold_idx+1} - Training Random Forest model...")
+                model = clone(self.estimator) # Clone estimator for each fold
                 model.fit(X_train, y_train, sample_weight=sample_weights)
-                logger.info(f"Fold {fold_idx+1} - Model training completed")
+                # logger.debug(f"Fold {fold_idx+1} - Model training completed")
                 
                 # Store feature importance
                 fold_importances.append(pd.Series(model.feature_importances_, index=current_features))
                 
                 # Make predictions
-                logger.info(f"Fold {fold_idx+1} - Making predictions on validation set...")
+                # logger.debug(f"Fold {fold_idx+1} - Making predictions on validation set...")
                 y_pred = model.predict(X_val)
-                logger.info(f"Fold {fold_idx+1} - Predictions completed")
+                # logger.debug(f"Fold {fold_idx+1} - Predictions completed")
                 
-                # Compute metrics immediately
+                # Compute metrics immediately using imported function
                 metrics = compute_metrics(y_val, y_pred)
                 metrics['fold'] = fold_idx + 1
                 fold_metrics.append(metrics)
-                logger.info(f"Fold {fold_idx+1} - F1 Score: {metrics['f1_score']:.4f}, Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}")
+                # logger.debug(f"Fold {fold_idx+1} - F1 Score: {metrics['f1_score']:.4f}, Precision: {metrics['precision']:.4f}, Recall: {metrics['recall']:.4f}")
             
             # Calculate average scores across folds
             fold_metrics_df = pd.DataFrame(fold_metrics)
@@ -323,71 +220,98 @@ class CustomRFECV:
             self.cv_results_['metrics_per_fold'].append(fold_metrics_df)
             self.cv_results_['feature_importances'].append(avg_importance)
             
-            logger.info(f"  F1 Score: {mean_score:.4f} ± {std_score:.4f}")
+            logger.info(f"  {current_n_features} Features -> F1 Score: {mean_score:.4f} ± {std_score:.4f}")
             
-            # If we're at the minimum number of features, break
-            if current_n_features <= self.min_features_to_select:
+            # If we're at the minimum number of features, break the loop *after* evaluating it
+            if current_n_features == self.min_features_to_select:
                 break
             
-            # Calculate number of features to eliminate
+            # Calculate number of features to eliminate for the *next* iteration
             if isinstance(self.step, list):
                 # Get appropriate step size based on how many features remain
-                remaining_steps = len(self.step) - len(self.cv_results_['n_features'])
-                step_idx = min(max(0, len(self.step) - remaining_steps - 1), len(self.step) - 1)
+                completed_evaluations = len(self.cv_results_['n_features']) # How many loops done
+                # Use the step size corresponding to the *next* loop (index = completed_evaluations)
+                # Clamp index to avoid going out of bounds if more loops run than steps defined
+                step_idx = min(completed_evaluations, len(self.step) - 1) 
                 n_to_eliminate = self.step[step_idx]
-                logger.info(f"Using step size {n_to_eliminate} (step {len(self.cv_results_['n_features'])+1})")
+                # logger.debug(f"Using step size {n_to_eliminate} (step index {step_idx} for next iteration)")
             elif isinstance(self.step, int):
-                n_to_eliminate = min(self.step, current_n_features - self.min_features_to_select)
-            else:
+                n_to_eliminate = self.step
+            else: # Assuming fraction
                 n_to_eliminate = max(1, int(current_n_features * self.step))
-                n_to_eliminate = min(n_to_eliminate, current_n_features - self.min_features_to_select)
-            
+
+            # Ensure we don't eliminate more features than allowed to reach min_features
+            n_to_eliminate = min(n_to_eliminate, current_n_features - self.min_features_to_select)
+            # Ensure we don't try to eliminate 0 features if step calculation resulted in 0
+            n_to_eliminate = max(1, n_to_eliminate) 
+
             # Get feature importances for current feature set
             supported_indices = np.where(support)[0]
             current_feature_names = [feature_names[i] for i in supported_indices]
             
             # Map average importances to the supported indices
-            current_importances = np.array([avg_importance[name] for name in current_feature_names])
+            current_importances = np.array([avg_importance.get(name, 0) for name in current_feature_names]) # Use .get for safety
 
             # Find the indices of the features to eliminate
-            actual_n_to_eliminate = min(n_to_eliminate, len(current_importances))
-            indices_to_eliminate_relative = np.argsort(current_importances)[:actual_n_to_eliminate]
+            indices_to_eliminate_relative = np.argsort(current_importances)[:n_to_eliminate]
             
             # Map these relative indices back to the original feature indices
             original_indices_to_eliminate = supported_indices[indices_to_eliminate_relative]
 
             # Update support mask
             support[original_indices_to_eliminate] = False
-            current_n_features = np.sum(support) # Update the count
+            current_n_features = np.sum(support) # Update the count for the next loop iteration
             
-            logger.info(f"Eliminated {len(original_indices_to_eliminate)} features. Remaining: {current_n_features}")
+            eliminated_names = [feature_names[i] for i in original_indices_to_eliminate]
+            # logger.debug(f"Eliminated {len(original_indices_to_eliminate)} features: {eliminated_names}. Remaining: {current_n_features}")
         
-        # Store final results
+        # Store final results based on best score
         self.ranking_ = np.zeros(n_features, dtype=int)
-        for i, selected in enumerate(self.cv_results_['features']):
-            for feature in selected:
-                idx = feature_names.index(feature)
-                self.ranking_[idx] = min(self.ranking_[idx] if self.ranking_[idx] != 0 else n_features, n_features - i)
-        
-        # Find best feature count based on scores
+        # Rank features based on when they were eliminated (lower rank = eliminated later/more important)
+        elimination_order = {}
+        rank_counter = 1
+        # Iterate backwards through the elimination process
+        for i in range(len(self.cv_results_['n_features']) - 1, -1, -1):
+             current_eval_features = set(self.cv_results_['features'][i])
+             prev_eval_features = set(self.cv_results_['features'][i-1]) if i > 0 else set(feature_names)
+             eliminated_in_this_step = prev_eval_features - current_eval_features
+             for feature in eliminated_in_this_step:
+                 if feature not in elimination_order:
+                     elimination_order[feature] = rank_counter
+             rank_counter += len(eliminated_in_this_step)
+        # Assign rank 1 to features never eliminated
+        final_selected_features = set(self.cv_results_['features'][-1])
+        for feature in final_selected_features:
+             if feature not in elimination_order:
+                  elimination_order[feature] = rank_counter
+                  
+        # Fill self.ranking_ based on computed order (lower value is better rank)
+        max_rank = rank_counter # Total number of ranks assigned
+        for i, feature in enumerate(feature_names):
+            # Rank based on elimination order (higher value = eliminated earlier = worse rank)
+            # We want higher rank number for less important features
+            self.ranking_[i] = elimination_order.get(feature, max_rank) 
+
+
+        # Find best feature count based on mean F1 score
         best_idx = np.argmax(self.cv_results_['mean_test_score'])
         self.n_features_ = self.cv_results_['n_features'][best_idx]
         best_features = self.cv_results_['features'][best_idx]
         
         # Set support for best feature set
         self.support_ = np.zeros(n_features, dtype=bool)
-        for feature in self.cv_results_['features'][best_idx]:
+        for feature in best_features:
             idx = feature_names.index(feature)
             self.support_[idx] = True
         
-        # Store feature importances from the best model
+        # Store feature importances from the best model's CV runs
         self.feature_importances_ = np.zeros(n_features)
-        best_importances = self.cv_results_['feature_importances'][best_idx]
-        for feature, importance in best_importances.items():
+        best_importances_series = self.cv_results_['feature_importances'][best_idx]
+        for feature, importance in best_importances_series.items():
             idx = feature_names.index(feature)
             self.feature_importances_[idx] = importance
         
-        logger.info(f"Best number of features: {self.n_features_}")
+        logger.info(f"Best number of features: {self.n_features_} (based on F1 score)")
         logger.info(f"Selected features: {best_features}")
 
         # For the best model, calculate metrics per eco-region
@@ -397,245 +321,152 @@ class CustomRFECV:
         return self
     
     def calculate_eco_region_metrics(self, X, y, df, best_features):
-        """Calculate metrics per eco-region using the best features"""
-        eco_metrics = {}
+        """Calculate metrics per eco-region using the best features across CV folds."""
+        eco_metrics_accumulator = defaultdict(list) # Store metrics list per region
         eco_regions = df['eco_region'].unique()
         
-        for eco_region in eco_regions:
-            # Get eco-region mask
-            eco_mask = df['eco_region'] == eco_region
+        # Iterate through each fold's results
+        for fold_idx, (train_idx, val_idx) in enumerate(self.fold_splits):
+            # Train a model *once* on this fold's training data
+            X_train_fold = X.iloc[train_idx][best_features]
+            y_train_fold = y.iloc[train_idx]
+            model_fold = clone(self.estimator)
             
-            # Calculate metrics for each fold
-            fold_scores = []
-            for fold_idx, (train_idx, val_idx) in enumerate(self.fold_splits):
-                # Get validation indices for this eco-region
-                val_eco_idx = np.array([i for i in val_idx if eco_mask.iloc[i]])
+            # Apply sample weights if available for this fold's training
+            sample_weights_fold = None
+            if 'weight' in df.columns:
+                sample_weights_fold = df.iloc[train_idx]['weight'].values
+            model_fold.fit(X_train_fold, y_train_fold, sample_weight=sample_weights_fold)
+
+            # Evaluate on validation subsets for each eco-region present in this fold's val set
+            df_val_fold = df.iloc[val_idx]
+            X_val_fold = X.iloc[val_idx][best_features]
+            y_val_fold = y.iloc[val_idx]
+            y_pred_fold = model_fold.predict(X_val_fold)
+
+            for eco_region in df_val_fold['eco_region'].unique():
+                # Get mask for this eco-region *within this fold's validation set*
+                eco_mask_val_fold = (df_val_fold['eco_region'] == eco_region)
                 
-                if len(val_eco_idx) == 0:
-                    continue  # Skip if no validation samples for this eco-region in this fold
+                if np.sum(eco_mask_val_fold) == 0:
+                    continue # Should not happen based on loop logic, but safe check
+
+                y_val_eco = y_val_fold[eco_mask_val_fold]
+                y_pred_eco = y_pred_fold[eco_mask_val_fold]
                 
-                # Train on all training data
-                X_train = X.iloc[train_idx][best_features]
-                y_train = y.iloc[train_idx]
-                
-                # Test only on this eco-region's validation data
-                X_val_eco = X.iloc[val_eco_idx][best_features]
-                y_val_eco = y.iloc[val_eco_idx]
-                
-                # Train and predict
-                model = clone(self.estimator)  # Clone to ensure fresh model
-                model.fit(X_train, y_train)
-                y_pred_eco = model.predict(X_val_eco)
-                
-                # Calculate metrics
-                if len(np.unique(y_val_eco)) > 1:  # Ensure at least two classes
+                # Calculate metrics for this eco-region in this fold
+                if len(np.unique(y_val_eco)) > 0: # Need at least one label
                     metrics = compute_metrics(y_val_eco, y_pred_eco)
-                    fold_scores.append(metrics)
-            
-            if fold_scores:
-                # Average metrics across folds
-                eco_metrics[eco_region] = {
-                    'f1_score': np.mean([m['f1_score'] for m in fold_scores]),
-                    'precision': np.mean([m['precision'] for m in fold_scores]),
-                    'recall': np.mean([m['recall'] for m in fold_scores]),
-                    'n_samples': sum(eco_mask)
+                    metrics['n_samples_fold'] = len(y_val_eco) # Samples for this region IN THIS FOLD
+                    eco_metrics_accumulator[eco_region].append(metrics)
+
+        # Average metrics across folds for each eco-region
+        final_eco_metrics = {}
+        for eco_region, metrics_list in eco_metrics_accumulator.items():
+            if metrics_list:
+                # Calculate total samples for this eco-region across all validation folds
+                total_samples_eco = df[df['eco_region'] == eco_region].shape[0]
+                
+                # Use np.mean, handling potential NaNs if a metric couldn't be calculated in a fold
+                avg_f1 = np.nanmean([m['f1_score'] for m in metrics_list])
+                avg_precision = np.nanmean([m['precision'] for m in metrics_list])
+                avg_recall = np.nanmean([m['recall'] for m in metrics_list])
+                avg_accuracy = np.nanmean([m['accuracy'] for m in metrics_list])
+                
+                # Sum TP, FP, TN, FN across folds for aggregate CM values per eco-region
+                total_tp = np.sum([m['tp'] for m in metrics_list])
+                total_fp = np.sum([m['fp'] for m in metrics_list])
+                total_tn = np.sum([m['tn'] for m in metrics_list])
+                total_fn = np.sum([m['fn'] for m in metrics_list])
+
+                final_eco_metrics[eco_region] = {
+                    'f1_score': avg_f1,
+                    'precision': avg_precision,
+                    'recall': avg_recall,
+                    'accuracy': avg_accuracy, # Add average accuracy
+                    'tp': total_tp, # Use summed CM values
+                    'fp': total_fp,
+                    'tn': total_tn,
+                    'fn': total_fn,
+                    'n_samples': total_samples_eco # Total samples for this region in the dataset
                 }
         
-        return eco_metrics
-
-def calculate_eco_region_metrics(predictions_list):
-    """Calculate performance metrics grouped by eco-region."""
-    if not predictions_list:
-        logger.warning("No predictions found to calculate eco-region metrics.")
-        return pd.DataFrame()
-
-    logger.info("Calculating metrics per eco-region...")
-    pred_df = pd.DataFrame(predictions_list)
-    eco_metrics = []
-
-    for region, group in pred_df.groupby('eco_region'):
-        metrics = compute_metrics(group['y_true'], group['y_pred'])
-        metrics['eco_region'] = region
-        metrics['n_samples'] = len(group)
-        eco_metrics.append(metrics)
-        logger.info(f"  Eco-region {region} (N={len(group)}): F1={metrics['f1_score']:.4f}, Precision={metrics['precision']:.4f}, Recall={metrics['recall']:.4f}")
-
-    eco_metrics_df = pd.DataFrame(eco_metrics)
-    # Reorder columns for clarity
-    cols = ['eco_region', 'n_samples', 'f1_score', 'precision', 'recall', 'accuracy', 'tp', 'fp', 'tn', 'fn']
-    eco_metrics_df = eco_metrics_df[cols]
-    return eco_metrics_df
+        return final_eco_metrics
 
 def plot_feature_selection_results(rfecv, features, output_dir='results/feature_selection'):
     """
     Plot the results of feature selection.
     """
+    output_dir_path = Path(output_dir)
+    output_dir_path.mkdir(parents=True, exist_ok=True)
+
     # Plot number of features vs. cross-validation score
     plt.figure(figsize=(12, 6))
     plt.xlabel("Number of features selected")
-    plt.ylabel("Cross validation score (F1)")
+    plt.ylabel(f"Cross validation score ({rfecv.scoring})") # Use actual scoring metric
     plt.errorbar(
         rfecv.cv_results_['n_features'],
         rfecv.cv_results_['mean_test_score'],
         yerr=rfecv.cv_results_['std_test_score'],
         fmt='o-'
     )
+    # Highlight the best score
+    best_idx = np.argmax(rfecv.cv_results_['mean_test_score'])
+    best_n = rfecv.cv_results_['n_features'][best_idx]
+    best_score = rfecv.cv_results_['mean_test_score'][best_idx]
+    plt.plot(best_n, best_score, 'r*', markersize=15, label=f'Best ({best_n} features)')
+    plt.legend()
     plt.grid(True)
     plt.title("Feature Selection Cross-Validation Scores")
-    plt.savefig(f"{output_dir}/feature_selection_cv_scores.png")
+    plt.savefig(output_dir_path / "feature_selection_cv_scores.png")
     plt.close()
     
-    # Plot feature importance of selected features
-    selected_indices = np.where(rfecv.support_)[0]
-    selected_features = [features[i] for i in selected_indices]
-    selected_importances = rfecv.feature_importances_[selected_indices]
-    
-    # Sort by importance
-    sorted_idx = np.argsort(selected_importances)[::-1]
-    sorted_features = [selected_features[i] for i in sorted_idx]
-    sorted_importances = selected_importances[sorted_idx]
-    
-    plt.figure(figsize=(12, 8))
-    plt.barh(range(len(sorted_features)), sorted_importances, align='center')
-    plt.yticks(range(len(sorted_features)), sorted_features)
-    plt.xlabel('Relative Importance')
-    plt.title('Feature Importance of Selected Features')
-    plt.gca().invert_yaxis()  # Show highest values at the top
-    plt.tight_layout()
-    plt.savefig(f"{output_dir}/selected_features_importance.png")
-    plt.close()
+    # Plot feature importance of selected features (from the best model)
+    if rfecv.support_ is not None and rfecv.feature_importances_ is not None:
+        selected_indices = np.where(rfecv.support_)[0]
+        # Ensure features list matches the original feature order
+        all_feature_names = features # Assuming 'features' passed is the original full list
+        selected_features = [all_feature_names[i] for i in selected_indices]
+        # Select importances corresponding to the support mask
+        selected_importances = rfecv.feature_importances_[selected_indices]
+        
+        if len(selected_features) > 0:
+            # Sort by importance
+            sorted_idx = np.argsort(selected_importances)[::-1]
+            sorted_features = [selected_features[i] for i in sorted_idx]
+            sorted_importances = selected_importances[sorted_idx]
+            
+            plt.figure(figsize=(12, max(6, len(sorted_features) * 0.4))) # Adjust height
+            plt.barh(range(len(sorted_features)), sorted_importances, align='center')
+            plt.yticks(range(len(sorted_features)), sorted_features)
+            plt.xlabel('Relative Importance (Gini)')
+            plt.title(f'Feature Importance of Selected {len(sorted_features)} Features (Best Model)')
+            plt.gca().invert_yaxis()  # Show highest values at the top
+            plt.tight_layout()
+            plt.savefig(output_dir_path / "selected_features_importance.png")
+            plt.close()
+        else:
+            logger.warning("No features were selected, cannot plot importance.")
+    else:
+         logger.warning("Support or feature_importances_ not available in RFECV object, cannot plot importance.")
+
     
     # Extract and plot metrics per feature count
     metrics_data = []
     for i, n_feat in enumerate(rfecv.cv_results_['n_features']):
-        # Get all predictions across all folds for this feature count
-        all_true = []
-        all_pred = []
-        fold_metrics = rfecv.cv_results_['metrics_per_fold'][i]
-        
-        for _, row in fold_metrics.iterrows():
-            metrics_data.append({
-                'n_features': n_feat,
-                'f1_score': row['f1_score'],
-                'precision': row['precision'],
-                'recall': row['recall'],
-                'tp': row['tp'],
-                'fp': row['fp'],
-                'tn': row['tn'],
-                'fn': row['fn'],
-                'fold': row['fold']
-            })
+        fold_metrics_df = rfecv.cv_results_['metrics_per_fold'][i]
+        # Add n_features column to each fold's metrics
+        fold_metrics_df['n_features'] = n_feat
+        metrics_data.append(fold_metrics_df)
     
-    metrics_df = pd.DataFrame(metrics_data)
-    
-    # Plot f1, precision, recall by feature count (with error bars)
-    plt.figure(figsize=(14, 8))
-    
-    # Group by number of features and calculate mean and std for each metric
-    grouped = metrics_df.groupby('n_features')
-    means = grouped.mean()
-    stds = grouped.std()
-    
-    x = means.index
-    
-    plt.errorbar(x, means['f1_score'], yerr=stds['f1_score'], fmt='o-', label='F1 Score')
-    plt.errorbar(x, means['precision'], yerr=stds['precision'], fmt='s-', label='Precision')
-    plt.errorbar(x, means['recall'], yerr=stds['recall'], fmt='^-', label='Recall')
-    
-    plt.xlabel('Number of Features')
-    plt.ylabel('Score')
-    plt.title('Performance Metrics by Feature Count')
-    plt.legend()
-    plt.grid(True)
-    plt.savefig(f"{output_dir}/performance_metrics_by_feature_count.png")
-    plt.close()
-    
-    # Plot confusion matrix metrics (tp, tn, fp, fn) by feature count
-    fig, axs = plt.subplots(2, 2, figsize=(16, 12), sharex=True)
-    
-    metrics_to_plot = [('tp', 'True Positives'), ('fp', 'False Positives'), 
-                       ('tn', 'True Negatives'), ('fn', 'False Negatives')]
-    
-    for i, (metric, title) in enumerate(metrics_to_plot):
-        row, col = i // 2, i % 2
-        axs[row, col].errorbar(x, means[metric], yerr=stds[metric], fmt='o-')
-        axs[row, col].set_title(title)
-        axs[row, col].grid(True)
-    
-    # Set common labels
-    fig.add_subplot(111, frameon=False)
-    plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
-    plt.xlabel('Number of Features', fontsize=14)
-    plt.ylabel('Count', fontsize=14)
-    
-    plt.suptitle('Confusion Matrix Metrics by Feature Count', fontsize=16)
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plt.savefig(f"{output_dir}/confusion_matrix_metrics_by_feature_count.png")
-    plt.close()
-    
-    # Create a table of all metrics
-    summary_table = metrics_df.groupby('n_features').mean()[
-        ['f1_score', 'precision', 'recall', 'tp', 'fp', 'tn', 'fn']
-    ].round(4)
-    
-    # Add standard deviations
-    for col in ['f1_score', 'precision', 'recall']:
-        summary_table[f'{col}_std'] = metrics_df.groupby('n_features')[col].std().round(4)
-    
-    summary_table.to_csv(f"{output_dir}/feature_selection_metrics.csv")
-    
-    # Return the metrics data for further analysis
-    return metrics_df, summary_table
+    # Concatenate all fold metrics into a single DataFrame
+    if metrics_data:
+         metrics_df = pd.concat(metrics_data, ignore_index=True)
+    else:
+         metrics_df = pd.DataFrame() # Handle case with no results
 
-def create_feature_selection_report(rfecv, features, metrics_df, summary_table, eco_region_metrics_df, eco_stability_df=None, output_path='results/feature_selection/feature_selection_report.pdf'):
-    """Create a comprehensive PDF report of feature selection results."""
-    with PdfPages(output_path) as pdf:
-        # Title page
-        plt.figure(figsize=(12, 8))
-        plt.text(0.5, 0.5, 'Tree Phenology Classification\nFeature Selection Report',
-                ha='center', va='center', fontsize=24)
-        plt.text(0.5, 0.4, f'Generated on {time.strftime("%Y-%m-%d %H:%M:%S")}',
-                ha='center', va='center', fontsize=16)
-        plt.axis('off')
-        pdf.savefig()
-        plt.close()
-        
-        # Cross-validation scores plot
-        plt.figure(figsize=(12, 6))
-        plt.xlabel("Number of features selected")
-        plt.ylabel("Cross validation score (F1)")
-        plt.errorbar(
-            rfecv.cv_results_['n_features'],
-            rfecv.cv_results_['mean_test_score'],
-            yerr=rfecv.cv_results_['std_test_score'],
-            fmt='o-'
-        )
-        plt.grid(True)
-        plt.title("Feature Selection Cross-Validation Scores")
-        pdf.savefig()
-        plt.close()
-        
-        # Selected features importance
-        selected_indices = np.where(rfecv.support_)[0]
-        selected_features = [features[i] for i in selected_indices]
-        selected_importances = rfecv.feature_importances_[selected_indices]
-        
-        # Sort by importance
-        sorted_idx = np.argsort(selected_importances)[::-1]
-        sorted_features = [selected_features[i] for i in sorted_idx]
-        sorted_importances = selected_importances[sorted_idx]
-        
-        plt.figure(figsize=(12, 8))
-        plt.barh(range(len(sorted_features)), sorted_importances, align='center')
-        plt.yticks(range(len(sorted_features)), sorted_features)
-        plt.xlabel('Relative Importance')
-        plt.title('Feature Importance of Selected Features')
-        plt.gca().invert_yaxis()  # Show highest values at the top
-        plt.tight_layout()
-        pdf.savefig()
-        plt.close()
-        
-        # Performance metrics plot
+    if not metrics_df.empty:
+        # Plot f1, precision, recall by feature count (with error bars)
         plt.figure(figsize=(14, 8))
         
         # Group by number of features and calculate mean and std for each metric
@@ -643,7 +474,7 @@ def create_feature_selection_report(rfecv, features, metrics_df, summary_table, 
         means = grouped.mean()
         stds = grouped.std()
         
-        x = means.index
+        x = means.index.astype(int) # Ensure x-axis is integer
         
         plt.errorbar(x, means['f1_score'], yerr=stds['f1_score'], fmt='o-', label='F1 Score')
         plt.errorbar(x, means['precision'], yerr=stds['precision'], fmt='s-', label='Precision')
@@ -651,164 +482,315 @@ def create_feature_selection_report(rfecv, features, metrics_df, summary_table, 
         
         plt.xlabel('Number of Features')
         plt.ylabel('Score')
-        plt.title('Performance Metrics by Feature Count')
+        plt.title('Performance Metrics by Feature Count (Mean ± Std over CV Folds)')
+        plt.xticks(x) # Ensure ticks match number of features
         plt.legend()
         plt.grid(True)
-        pdf.savefig()
+        plt.savefig(output_dir_path / "performance_metrics_by_feature_count.png")
         plt.close()
         
-        # Confusion matrix metrics plots
-        fig, axs = plt.subplots(2, 2, figsize=(16, 12), sharex=True)
-        
-        metrics_to_plot = [('tp', 'True Positives'), ('fp', 'False Positives'), 
-                           ('tn', 'True Negatives'), ('fn', 'False Negatives')]
+        # Plot confusion matrix metrics (tp, tn, fp, fn) summed over folds by feature count
+        # Calculate sums for CM components per feature count
+        cm_sums = grouped[['tp', 'fp', 'tn', 'fn']].sum()
+
+        fig, axs = plt.subplots(2, 2, figsize=(12, 10), sharex=True)
+        metrics_to_plot = [('tp', 'Total True Positives'), ('fp', 'Total False Positives'), 
+                           ('tn', 'Total True Negatives'), ('fn', 'Total False Negatives')]
         
         for i, (metric, title) in enumerate(metrics_to_plot):
             row, col = i // 2, i % 2
-            axs[row, col].errorbar(x, means[metric], yerr=stds[metric], fmt='o-')
+            axs[row, col].plot(cm_sums.index.astype(int), cm_sums[metric], 'o-')
             axs[row, col].set_title(title)
             axs[row, col].grid(True)
-        
-        # Set common labels
-        fig.add_subplot(111, frameon=False)
-        plt.tick_params(labelcolor='none', top=False, bottom=False, left=False, right=False)
-        plt.xlabel('Number of Features', fontsize=14)
-        plt.ylabel('Count', fontsize=14)
-        
-        plt.suptitle('Confusion Matrix Metrics by Feature Count', fontsize=16)
+            axs[row, col].set_ylabel('Total Count across Folds')
+            if row == 1: # Add x-label only to bottom plots
+                 axs[row, col].set_xlabel('Number of Features')
+                 axs[row, col].set_xticks(cm_sums.index.astype(int)) # Ensure ticks match feature counts
+
+        plt.suptitle('Aggregated Confusion Matrix Components by Feature Count', fontsize=16)
         plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        plt.savefig(output_dir_path / "confusion_matrix_metrics_by_feature_count.png")
+        plt.close()
+        
+        # Create a summary table of mean metrics
+        summary_table = means[['f1_score', 'precision', 'recall', 'accuracy']].copy()
+        
+        # Add standard deviations for key scores
+        for col in ['f1_score', 'precision', 'recall', 'accuracy']:
+            summary_table[f'{col}_std'] = stds[col]
+            
+        # Add summed CM components
+        summary_table = summary_table.join(cm_sums)
+
+        # Reorder columns for clarity
+        summary_cols = ['f1_score', 'f1_score_std', 'precision', 'precision_std', 
+                        'recall', 'recall_std', 'accuracy', 'accuracy_std',
+                        'tp', 'fp', 'tn', 'fn']
+        summary_table = summary_table[summary_cols].sort_index(ascending=False) # Show highest features first
+        summary_table.to_csv(output_dir_path / "feature_selection_metrics_summary.csv", float_format='%.4f')
+        
+        # Save the raw metrics per fold per feature count
+        metrics_df.to_csv(output_dir_path / "feature_selection_metrics_raw.csv", index=False, float_format='%.4f')
+
+    else:
+        logger.warning("Metrics DataFrame is empty, cannot generate plots or summary tables.")
+        summary_table = pd.DataFrame() # Return empty dataframe
+
+    # Return the per-fold metrics df and the summary table
+    return metrics_df, summary_table
+
+def create_feature_selection_report(rfecv, features, metrics_df, summary_table, eco_region_metrics, output_path='results/feature_selection/feature_selection_report.pdf'):
+    """Create a comprehensive PDF report of feature selection results."""
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True) # Ensure directory exists
+
+    with PdfPages(output_path) as pdf:
+        # --- Title Page ---
+        plt.figure(figsize=(12, 8))
+        plt.text(0.5, 0.6, 'Tree Phenology Classification', ha='center', va='center', fontsize=26, fontweight='bold')
+        plt.text(0.5, 0.5, 'Recursive Feature Elimination (RFECV) Report', ha='center', va='center', fontsize=22)
+        plt.text(0.5, 0.35, f'Generated on: {time.strftime("%Y-%m-%d %H:%M:%S")}', ha='center', va='center', fontsize=14)
+        plt.text(0.5, 0.3, f'Scoring Metric: {rfecv.scoring}', ha='center', va='center', fontsize=14)
+        plt.text(0.5, 0.25, f'Minimum Features: {rfecv.min_features_to_select}', ha='center', va='center', fontsize=14)
+        plt.axis('off')
         pdf.savefig()
         plt.close()
         
-        # Summary table of metrics
-        fig, ax = plt.subplots(figsize=(12, 8))
-        ax.axis('tight')
-        ax.axis('off')
-        
-        # Create table with selected columns
-        table_data = summary_table.reset_index()
-        table_data = table_data[['n_features', 'f1_score', 'f1_score_std', 
-                                'precision', 'precision_std', 'recall', 'recall_std',
-                                'tp', 'fp', 'tn', 'fn']]
-        
-        the_table = ax.table(cellText=table_data.values.round(4),
-                            colLabels=table_data.columns,
-                            loc='center',
-                            cellLoc='center')
-        the_table.auto_set_font_size(False)
-        the_table.set_fontsize(10)
-        the_table.scale(1.2, 1.5)
-        
-        plt.title('Summary of Metrics by Feature Count', fontsize=16)
-        pdf.savefig()
-        plt.close()
-        
-        # Page showing selected features
-        fig, ax = plt.subplots(figsize=(12, 8))
-        ax.axis('off')
-        
-        plt.text(0.5, 0.9, 'Selected Features', ha='center', fontsize=18, fontweight='bold')
-        
+        # --- CV Scores Plot ---
+        fig = plt.figure(figsize=(12, 6))
+        plt.xlabel("Number of features selected")
+        plt.ylabel(f"Cross validation score ({rfecv.scoring})")
+        plt.errorbar(
+            rfecv.cv_results_['n_features'],
+            rfecv.cv_results_['mean_test_score'],
+            yerr=rfecv.cv_results_['std_test_score'],
+            fmt='o-', label='Mean Score ± Std Dev'
+        )
+        # Highlight the best score
         best_idx = np.argmax(rfecv.cv_results_['mean_test_score'])
-        best_n_features = rfecv.cv_results_['n_features'][best_idx]
-        best_features = rfecv.cv_results_['features'][best_idx]
+        best_n = rfecv.cv_results_['n_features'][best_idx]
+        best_score = rfecv.cv_results_['mean_test_score'][best_idx]
+        plt.plot(best_n, best_score, 'r*', markersize=15, label=f'Best Score ({best_n} features)')
+        plt.xticks(rfecv.cv_results_['n_features'])
+        plt.legend()
+        plt.grid(True)
+        plt.title("Feature Selection Cross-Validation Scores")
+        pdf.savefig(fig)
+        plt.close(fig)
         
-        features_text = f"Best number of features: {best_n_features}\n\n"
-        features_text += "Selected features:\n"
+        # --- Selected Features Importance ---
+        if rfecv.support_ is not None and rfecv.feature_importances_ is not None:
+            selected_indices = np.where(rfecv.support_)[0]
+            all_feature_names = features
+            selected_features = [all_feature_names[i] for i in selected_indices]
+            selected_importances = rfecv.feature_importances_[selected_indices]
+            
+            if len(selected_features) > 0:
+                sorted_idx = np.argsort(selected_importances)[::-1]
+                sorted_features = [selected_features[i] for i in sorted_idx]
+                sorted_importances = selected_importances[sorted_idx]
+                
+                fig = plt.figure(figsize=(12, max(6, len(sorted_features) * 0.4)))
+                plt.barh(range(len(sorted_features)), sorted_importances, align='center')
+                plt.yticks(range(len(sorted_features)), sorted_features)
+                plt.xlabel('Relative Importance (Gini)')
+                plt.title(f'Feature Importance of Selected {len(sorted_features)} Features (Best Model)')
+                plt.gca().invert_yaxis()
+                plt.tight_layout()
+                pdf.savefig(fig)
+                plt.close(fig)
         
-        for i, feature in enumerate(best_features, 1):
+        # --- Performance Metrics Plot ---
+        if not metrics_df.empty:
+            grouped = metrics_df.groupby('n_features')
+            means = grouped.mean()
+            stds = grouped.std()
+            x = means.index.astype(int)
+            
+            fig = plt.figure(figsize=(14, 8))
+            plt.errorbar(x, means['f1_score'], yerr=stds['f1_score'], fmt='o-', label='F1 Score')
+            plt.errorbar(x, means['precision'], yerr=stds['precision'], fmt='s-', label='Precision')
+            plt.errorbar(x, means['recall'], yerr=stds['recall'], fmt='^-', label='Recall')
+            plt.xlabel('Number of Features')
+            plt.ylabel('Score')
+            plt.title('Performance Metrics by Feature Count (Mean ± Std over CV Folds)')
+            plt.xticks(x)
+            plt.legend()
+            plt.grid(True)
+            pdf.savefig(fig)
+            plt.close(fig)
+        
+        # --- Confusion Matrix Metrics Plot ---
+        if not metrics_df.empty:
+            # Ensure 'grouped' is defined here if not carried over
+            if 'grouped' not in locals():
+                grouped = metrics_df.groupby('n_features')
+            cm_sums = grouped[['tp', 'fp', 'tn', 'fn']].sum()
+            fig, axs = plt.subplots(2, 2, figsize=(12, 10), sharex=True)
+            metrics_to_plot = [('tp', 'Total True Positives'), ('fp', 'Total False Positives'), 
+                               ('tn', 'Total True Negatives'), ('fn', 'Total False Negatives')]
+            
+            plot_x_axis = cm_sums.index.astype(int)
+            for i, (metric, title) in enumerate(metrics_to_plot):
+                row, col = i // 2, i % 2
+                axs[row, col].plot(plot_x_axis, cm_sums[metric], 'o-')
+                axs[row, col].set_title(title)
+                axs[row, col].grid(True)
+                axs[row, col].set_ylabel('Total Count across Folds')
+                if row == 1: 
+                     axs[row, col].set_xlabel('Number of Features')
+                     axs[row, col].set_xticks(plot_x_axis)
+            
+            plt.suptitle('Aggregated Confusion Matrix Components by Feature Count', fontsize=16)
+            plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+            pdf.savefig(fig)
+            plt.close(fig)
+        
+        # --- Summary Table of Metrics ---
+        if not summary_table.empty:
+            fig, ax = plt.subplots(figsize=(12, max(4, len(summary_table) * 0.5))) # Adjust height
+            ax.axis('tight')
+            ax.axis('off')
+            
+            # Format table data for display
+            table_data_display = summary_table.copy().reset_index()
+            # Select and reorder columns for the table
+            display_cols = ['n_features', 'f1_score', 'f1_score_std', 'precision', 'precision_std', 
+                            'recall', 'recall_std', 'accuracy', 'accuracy_std', 'tp', 'fp', 'tn', 'fn']
+            # Ensure all display columns exist in the dataframe, add NaN if not
+            for col in display_cols:
+                if col not in table_data_display.columns:
+                    table_data_display[col] = np.nan
+            table_data_display = table_data_display[display_cols]
+            
+            # Format numbers
+            float_cols = ['f1_score', 'f1_score_std', 'precision', 'precision_std', 'recall', 'recall_std', 'accuracy', 'accuracy_std']
+            int_cols = ['tp', 'fp', 'tn', 'fn']
+            for col in float_cols:
+                 table_data_display[col] = table_data_display[col].map('{:.4f}'.format)
+            for col in int_cols:
+                 # Handle potential NaN before converting to int
+                 table_data_display[col] = table_data_display[col].fillna(0).astype(int)
+
+            the_table = ax.table(cellText=table_data_display.values,
+                                colLabels=table_data_display.columns,
+                                loc='center',
+                                cellLoc='center')
+            the_table.auto_set_font_size(False)
+            the_table.set_fontsize(9)
+            the_table.scale(1.1, 1.3)
+            
+            plt.title('Summary of Metrics by Feature Count (Mean/Std over Folds)', fontsize=16)
+            pdf.savefig(fig)
+            plt.close(fig)
+        
+        # --- Page Showing Selected Features ---
+        fig, ax = plt.subplots(figsize=(12, 8))
+        ax.axis('off')
+        
+        plt.text(0.5, 0.95, 'Selected Features (Best Model)', ha='center', fontsize=18, fontweight='bold')
+        
+        # Use rfecv.support_ to get selected features from the original list
+        best_features = [f for i, f in enumerate(features) if rfecv.support_[i]]
+        
+        # Re-calculate best_idx based on the actual CV results stored
+        best_idx = np.argmax(rfecv.cv_results_['mean_test_score'])
+        best_f1_score = rfecv.cv_results_['mean_test_score'][best_idx]
+        
+        features_text = f"Best number of features: {rfecv.n_features_}\n"
+        features_text += f"Achieved Mean F1 Score: {best_f1_score:.4f}\n\n"
+        features_text += "Selected features (Importance Ranked where available):\n"
+        
+        # Get importance if available and sort
+        ranked_features = []
+        if hasattr(rfecv, 'feature_importances_') and rfecv.feature_importances_ is not None:
+             # Ensure importances correspond to selected features
+             selected_importances = rfecv.feature_importances_[rfecv.support_]
+             if len(selected_importances) == len(best_features):
+                 sorted_indices = np.argsort(selected_importances)[::-1]
+                 ranked_features = [best_features[i] for i in sorted_indices]
+             else:
+                 logger.warning("Mismatch between number of selected features and importances. Sorting alphabetically.")
+                 ranked_features = sorted(best_features) # Fallback
+        else:
+             ranked_features = sorted(best_features) # Sort alphabetically if no importance
+
+        for i, feature in enumerate(ranked_features, 1):
             features_text += f"{i}. {feature}\n"
         
-        plt.text(0.1, 0.7, features_text, fontsize=12, va='top')
+        plt.text(0.1, 0.8, features_text, fontsize=11, va='top', linespacing=1.5)
         
-        pdf.savefig()
-        plt.close()
+        pdf.savefig(fig)
+        plt.close(fig)
 
-        # --- Add this section for Eco-region Metrics --- 
-        if not eco_region_metrics_df.empty:
-            fig, ax = plt.subplots(figsize=(12, max(4, len(eco_region_metrics_df) * 0.5))) # Adjust height based on rows
+        # --- Eco-region Metrics Table --- 
+        if eco_region_metrics:
+            eco_metrics_df = pd.DataFrame.from_dict(eco_region_metrics, orient='index')
+            eco_metrics_df = eco_metrics_df.reset_index().rename(columns={'index': 'eco_region'})
+            
+            # Sort by F1-score (descending)
+            eco_metrics_df = eco_metrics_df.sort_values('f1_score', ascending=False)
+
+            fig, ax = plt.subplots(figsize=(12, max(4, len(eco_metrics_df) * 0.5))) 
             ax.axis('tight')
             ax.axis('off')
             
             # Select and reorder columns for the table
-            eco_table_data = eco_region_metrics_df[['eco_region', 'n_samples', 'f1_score', 'precision', 'recall', 'tp', 'fp', 'tn', 'fn']]
+            eco_display_cols = ['eco_region', 'n_samples', 'f1_score', 'precision', 'recall', 'accuracy', 'tp', 'fp', 'tn', 'fn']
+            # Ensure columns exist
+            for col in eco_display_cols:
+                if col not in eco_metrics_df.columns:
+                     eco_metrics_df[col] = np.nan
+            eco_table_data = eco_metrics_df[eco_display_cols]
             
-            # Format the data - convert to strings with appropriate formatting
+            # Format the data
             formatted_data = []
             for _, row in eco_table_data.iterrows():
                 formatted_row = [
-                    row['eco_region'],  # Keep eco_region as is (string)
-                    str(row['n_samples']),  # Convert n_samples to string
-                    f"{row['f1_score']:.4f}",  # Format floating point values with 4 decimal places
-                    f"{row['precision']:.4f}",
-                    f"{row['recall']:.4f}",
-                    str(int(row['tp'])),  # Format integer values
-                    str(int(row['fp'])),
-                    str(int(row['tn'])),
-                    str(int(row['fn']))
+                    row['eco_region'],
+                    str(int(row['n_samples'])) if pd.notna(row['n_samples']) else 'N/A',
+                    f"{row['f1_score']:.4f}" if pd.notna(row['f1_score']) else 'N/A',
+                    f"{row['precision']:.4f}" if pd.notna(row['precision']) else 'N/A',
+                    f"{row['recall']:.4f}" if pd.notna(row['recall']) else 'N/A',
+                    f"{row['accuracy']:.4f}" if pd.notna(row['accuracy']) else 'N/A',
+                    str(int(row['tp'])) if pd.notna(row['tp']) else 'N/A',
+                    str(int(row['fp'])) if pd.notna(row['fp']) else 'N/A',
+                    str(int(row['tn'])) if pd.notna(row['tn']) else 'N/A',
+                    str(int(row['fn'])) if pd.notna(row['fn']) else 'N/A'
                 ]
                 formatted_data.append(formatted_row)
             
             the_table = ax.table(cellText=formatted_data,
-                                colLabels=eco_table_data.columns,
+                                colLabels=eco_display_cols,
                                 loc='center',
                                 cellLoc='center')
             the_table.auto_set_font_size(False)
-            the_table.set_fontsize(10)
-            the_table.scale(1.2, 1.5)
+            the_table.set_fontsize(9)
+            the_table.scale(1.1, 1.3)
             
-            plt.title('Performance Metrics per Eco-Region (Best Model)', fontsize=16)
+            plt.title('Performance Metrics per Eco-Region (Best Model - Aggregated over CV Folds)', fontsize=14)
             plt.tight_layout()
             pdf.savefig(fig)
-            plt.close()
+            plt.close(fig)
         else:
             # Add a placeholder page if metrics are empty
             plt.figure(figsize=(12, 8))
-            plt.text(0.5, 0.5, 'Eco-region metrics could not be calculated.',
+            plt.text(0.5, 0.5, 'Eco-region metrics could not be calculated or were empty.',
                     ha='center', va='center', fontsize=16)
             plt.axis('off')
             pdf.savefig()
             plt.close()
-        # --- End of added section ---
 
-        # Add eco-region stability plot if available
-        if eco_stability_df is not None and not eco_stability_df.empty:
-            plt.figure(figsize=(12, 6))
-            plt.plot(eco_stability_df['n_features'], eco_stability_df['f1_std_across_eco'], 'o-', color='red')
-            plt.xlabel('Number of Features')
-            plt.ylabel('Standard Deviation of F1 Scores Across Eco-regions')
-            plt.title('Eco-region F1-Score Stability by Feature Count')
-            plt.grid(True)
-            pdf.savefig()
-            plt.close()
-            
-            # Plot both overall F1 and eco-region stability
-            plt.figure(figsize=(12, 6))
-            
-            # Create two y-axes
-            fig, ax1 = plt.subplots(figsize=(12, 6))
-            ax2 = ax1.twinx()
-            
-            # Plot mean F1 score on left axis
-            ax1.plot(rfecv.cv_results_['n_features'], rfecv.cv_results_['mean_test_score'], 'o-', color='blue', label='Mean F1 Score')
-            ax1.set_xlabel('Number of Features')
-            ax1.set_ylabel('Mean F1 Score', color='blue')
-            ax1.tick_params(axis='y', colors='blue')
-            
-            # Plot eco-region F1 std on right axis
-            ax2.plot(eco_stability_df['n_features'], eco_stability_df['f1_std_across_eco'], 's-', color='red', label='Eco-region F1 Std')
-            ax2.set_ylabel('Std Dev of F1 Across Eco-regions', color='red')
-            ax2.tick_params(axis='y', colors='red')
-            
-            # Add legend
-            lines1, labels1 = ax1.get_legend_handles_labels()
-            lines2, labels2 = ax2.get_legend_handles_labels()
-            ax1.legend(lines1 + lines2, labels1 + labels2, loc='best')
-            
-            plt.title('F1 Score and Eco-region Stability by Feature Count')
-            plt.grid(True)
-            pdf.savefig(fig)
-            plt.close()
+        # --- Add eco-region stability plot if available (requires calculating std across eco-regions per N features) ---
+        # This requires recalculating eco-region metrics for *each* feature count evaluated,
+        # which is computationally expensive and not currently done in the main loop.
+        # If this plot is needed, the CustomRFECV fit method needs significant modification.
+        # Placeholder for now:
+        # if eco_stability_df is not None and not eco_stability_df.empty:
+        #    ... (plotting code) ...
+
+    logger.info(f"Feature selection report saved to {output_path}")
+
 
 def main():
     """
@@ -827,36 +809,50 @@ def main():
     parser.add_argument('--dataset_path', type=str, default=DATASET_PATH,
                         help='Path to the dataset parquet file.')
     parser.add_argument('--step_sizes', type=str, default='1',
-                        help='Comma-separated list of step sizes (features to remove at each iteration)')
+                        help='Comma-separated list of step sizes (features to remove at each iteration), or a single float (e.g., 0.1 for 10%%).')
+    parser.add_argument('--n_estimators', type=int, default=30, help='Number of trees in RandomForest.') # RF Param
+    parser.add_argument('--max_depth', type=int, default=None, help='Max depth of trees in RandomForest.') # RF Param
+    parser.add_argument('--min_samples_split', type=int, default=2, help='Min samples split in RandomForest.') # RF Param
+    parser.add_argument('--min_samples_leaf', type=int, default=1, help='Min samples leaf in RandomForest.') # RF Param
+    parser.add_argument('--cv_folds', type=int, default=5, help='Number of cross-validation folds.')
+    parser.add_argument('--scoring', type=str, default='f1_score', help='Scoring metric for feature selection (e.g., f1_score, accuracy).')
     args = parser.parse_args()
     
     # Create output directory
-    os.makedirs(args.output, exist_ok=True)
+    output_dir = Path(args.output)
+    output_dir.mkdir(parents=True, exist_ok=True)
     
     # Start timing
     start_time = time.time()
     
     # Load dataset
     logger.info(f"Loading dataset from {args.dataset_path}...")
-    df = pd.read_parquet(args.dataset_path)
-    logger.info(f"Dataset loaded: {len(df)} samples")
+    try:
+        df = pd.read_parquet(args.dataset_path)
+        logger.info(f"Dataset loaded: {len(df)} samples")
+    except FileNotFoundError:
+        logger.error(f"Dataset file not found: {args.dataset_path}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Error loading dataset: {e}")
+        sys.exit(1)
+
     
     # If in test mode, use only a subset of the data
     if args.test:
-        logger.info(f"Running in TEST MODE with {args.test_size} samples")
-        # Ensure we keep a balanced subset of phenology classes
-        sample_per_class = args.test_size // 2
-        df_subset = pd.DataFrame()
-        for pheno_class in df['phenology'].unique():
-            class_df = df[df['phenology'] == pheno_class]
-            if len(class_df) > sample_per_class:
-                class_sample = class_df.sample(sample_per_class, random_state=42)
-            else:
-                class_sample = class_df  # Use all if we have fewer than needed
-            df_subset = pd.concat([df_subset, class_sample])
-        
-        df = df_subset
-        logger.info(f"Using subset of data: {len(df)} samples")
+        logger.info(f"Running in TEST MODE with approximately {args.test_size} samples")
+        if len(df) > args.test_size:
+            # Ensure we keep a balanced subset of phenology classes
+            n_classes = df['phenology'].nunique()
+            sample_per_class = args.test_size // n_classes if n_classes > 0 else args.test_size
+            
+            df = df.groupby('phenology', group_keys=False).apply(
+                lambda x: x.sample(min(len(x), sample_per_class), random_state=42)
+            )
+            logger.info(f"Using subset of data: {len(df)} samples")
+        else:
+            logger.warning(f"Test size ({args.test_size}) >= dataset size ({len(df)}). Using full dataset.")
+
     
     # --- Unscale Features --- 
     logger.info("Unscaling features to physical ranges...")
@@ -876,15 +872,15 @@ def main():
                     )
                     unscaled_count += 1
                 except Exception as e:
-                    logger.error(f"Error unscaling column {col_name}: {e}")
+                    logger.warning(f"Could not unscale column {col_name}: {e}") # Use warning, not error
                     skipped_cols.append(col_name)
-            else:
-                skipped_cols.append(col_name)
+            # else: # Don't log every missing feature, can be too verbose if only some indices used
+            #     skipped_cols.append(col_name) 
     df = df_copy # Assign the modified copy back to df
     logger.info(f"Unscaling complete. Processed {unscaled_count} columns.")
-    if skipped_cols:
-        unique_skipped = sorted(list(set(skipped_cols)))
-        # logger.debug(f"Skipped/Not Found {len(unique_skipped)} columns during unscaling: {unique_skipped[:5]}...") 
+    # if skipped_cols: # Reduce verbosity
+    #     unique_skipped = sorted(list(set(skipped_cols)))
+    #     logger.debug(f"Skipped/Not Found {len(unique_skipped)} columns during unscaling: {unique_skipped[:5]}...") 
 
     # --- Apply Circular Transformation (using imported function) ---
     logger.info("Applying circular transformation to unscaled (radian) phase features...")
@@ -893,66 +889,118 @@ def main():
 
     # Print dataset info
     logger.info("\n=== Dataset Info ===")
-    logger.info(f"Phenology distribution:\n{df['phenology'].value_counts().to_string()}")
-    logger.info(f"\nEco-region distribution:\n{df['eco_region'].value_counts().to_string()}")
+    logger.info(f"Phenology distribution:\n{df['phenology'].value_counts(normalize=True).round(3).to_string()}")
+    logger.info(f"\nEco-region distribution (Top 10):\n{df['eco_region'].value_counts(normalize=True).round(3).head(10).to_string()}")
     logger.info(f"\nNumber of unique tiles: {df['tile_id'].nunique()}")
     
-    # Get all features
-    features = get_all_features()
-    logger.info(f"Total number of features: {len(features)}")
+    # Get all potential features after transformation
+    all_possible_features = get_all_features()
+    # Filter features to only those present in the final DataFrame
+    features = [f for f in all_possible_features if f in df.columns]
+    logger.info(f"Using {len(features)} available features for selection: {features}")
     
     # Prepare data
     X = df[features]
     y = df['phenology']
     
-    # Initialize model
-    rf = RandomForestClassifier(n_estimators=30, random_state=42, n_jobs=-1, class_weight='balanced')
+    # Initialize model with parameters from args
+    rf = RandomForestClassifier(
+        n_estimators=args.n_estimators, 
+        random_state=42, 
+        n_jobs=-1, 
+        class_weight='balanced',
+        max_depth=args.max_depth,
+        min_samples_split=args.min_samples_split,
+        min_samples_leaf=args.min_samples_leaf
+    )
+    logger.info(f"RandomForestClassifier configured with: n_estimators={args.n_estimators}, max_depth={args.max_depth}, min_samples_split={args.min_samples_split}, min_samples_leaf={args.min_samples_leaf}")
+
     
     # Initialize step sizes
-    step_sizes = [int(x) for x in args.step_sizes.split(',')]
+    try:
+        # Try interpreting as comma-separated integers
+        step_input = [int(x.strip()) for x in args.step_sizes.split(',')]
+        logger.info(f"Using integer step sizes: {step_input}")
+    except ValueError:
+        try:
+            # Try interpreting as a single float
+            step_input = float(args.step_sizes)
+            if 0 < step_input < 1:
+                logger.info(f"Using fractional step size: {step_input}")
+            else:
+                raise ValueError("Fractional step size must be between 0 and 1")
+        except ValueError:
+             logger.error(f"Invalid step_sizes argument: '{args.step_sizes}'. Must be comma-separated integers or a single float between 0 and 1.")
+             sys.exit(1)
 
-    # Initialize RFE with adaptive step size
+    # Initialize RFE
     rfecv = CustomRFECV(
         estimator=rf,
         min_features_to_select=args.min_features,
-        step=step_sizes,  # Pass the list of step sizes
-        cv=5,
-        scoring='f1_score'
+        step=step_input,
+        cv=args.cv_folds,
+        scoring=args.scoring
     )
+    logger.info(f"CustomRFECV initialized with: min_features={args.min_features}, step={step_input}, cv={args.cv_folds}, scoring='{args.scoring}'")
+
     
     # Fit the model
-    rfecv.fit(X, y, df)
+    rfecv.fit(X, y, df) # df is passed to CustomRFECV for fold creation
     
-    # Plot results
-    metrics_df, summary_table = plot_feature_selection_results(rfecv, features, args.output)
+    # Plot results and get metrics tables
+    metrics_df, summary_table = plot_feature_selection_results(rfecv, features, output_dir)
     
-    # Save selected features
-    selected_indices = np.where(rfecv.support_)[0]
-    selected_features = [features[i] for i in selected_indices]
-    
-    with open(f"{args.output}/selected_features.txt", 'w') as f:
-        f.write(f"Best number of features: {rfecv.n_features_}\n\n")
-        f.write("Selected features:\n")
+    # Save selected features list
+    # Use rfecv.support_ to get the boolean mask for selected features
+    selected_features = [features[i] for i, supported in enumerate(rfecv.support_) if supported]
+    selected_features_path = output_dir / "selected_features.txt"
+    with open(selected_features_path, 'w') as f:
+        f.write(f"# Feature Selection Results ({time.strftime('%Y-%m-%d %H:%M:%S')})\n")
+        f.write(f"# Best number of features: {rfecv.n_features_} (based on {args.scoring})\n\n")
+        f.write("# Selected features:\n")
         for feature in selected_features:
-            f.write(f"- {feature}\n")
+            f.write(f"{feature}\n")
+    logger.info(f"Selected features list saved to {selected_features_path}")
+
     
     # Save eco-region metrics if available
     if hasattr(rfecv, 'best_model_eco_metrics') and rfecv.best_model_eco_metrics:
-        eco_metrics_df = pd.DataFrame([
-            {
-                'eco_region': region,
-                **metrics
-            }
-            for region, metrics in rfecv.best_model_eco_metrics.items()
-        ])
-        eco_metrics_df.to_csv(f"{args.output}/eco_region_metrics.csv", index=False)
-        logger.info(f"Eco-region metrics saved to {args.output}/eco_region_metrics.csv")
-    
+        # Convert dict to DataFrame
+        eco_metrics_df = pd.DataFrame.from_dict(rfecv.best_model_eco_metrics, orient='index')
+        eco_metrics_df = eco_metrics_df.reset_index().rename(columns={'index': 'eco_region'})
+        # Reorder columns
+        eco_cols_order = ['eco_region', 'n_samples', 'f1_score', 'precision', 'recall', 'accuracy', 'tp', 'fp', 'tn', 'fn']
+        # Ensure all expected columns exist, add if missing (e.g., if some metric failed)
+        for col in eco_cols_order:
+             if col not in eco_metrics_df.columns:
+                  eco_metrics_df[col] = np.nan 
+        eco_metrics_df = eco_metrics_df[eco_cols_order]
+        eco_metrics_path = output_dir / "eco_region_metrics_best_model.csv"
+        eco_metrics_df.to_csv(eco_metrics_path, index=False, float_format='%.4f')
+        logger.info(f"Eco-region metrics for best model saved to {eco_metrics_path}")
+    else:
+        logger.warning("No eco-region metrics were calculated or available to save.")
+
+    # Create PDF report
+    report_path = output_dir / "feature_selection_report.pdf"
+    try:
+        create_feature_selection_report(
+            rfecv,
+            features, # Pass the full list of features used
+            metrics_df, # Per-fold metrics
+            summary_table, # Aggregated metrics per n_features
+            rfecv.best_model_eco_metrics, # Eco-region metrics dict
+            output_path=report_path
+        )
+    except Exception as e:
+        logger.error(f"Failed to generate PDF report: {e}", exc_info=True)
+
+
     # Report execution time
     elapsed_time = time.time() - start_time
     logger.info(f"Feature selection completed in {elapsed_time:.2f} seconds")
-    logger.info(f"Best number of features: {rfecv.n_features_}")
-    logger.info(f"Selected features: {selected_features}")
+    logger.info(f"Best number of features found: {rfecv.n_features_}")
+    logger.info(f"Results saved in: {output_dir.resolve()}")
 
 if __name__ == "__main__":
     main() 

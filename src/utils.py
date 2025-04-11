@@ -430,61 +430,103 @@ def compute_metrics(y_true, y_pred):
     Compute classification metrics.
     
     Args:
-        y_true: True labels
+        y_true: True labels (assuming 1: Deciduous, 2: Evergreen)
         y_pred: Predicted labels
         
     Returns:
-        Dictionary of metrics including confusion matrix values, accuracy, precision, recall, and F1 score
+        Dictionary of metrics including confusion matrix values, accuracy,
+        precision/recall (Deciduous, Evergreen, macro, weighted), 
+        and various F1 scores.
     """
     from sklearn.metrics import f1_score, confusion_matrix, precision_score, recall_score
     
-    # Ensure there are predictions to compute confusion matrix
-    if len(y_true) == 0 or len(y_pred) == 0:
-        return {
-            'tp': 0, 'fp': 0, 'tn': 0, 'fn': 0,
-            'accuracy': 0, 'precision': 0, 'recall': 0, 'f1_score': 0
-        }
-        
-    # Handle cases where only one class is present in y_true or y_pred for CM
-    unique_labels = np.unique(np.concatenate((y_true, y_pred)))
-    if len(unique_labels) < 2:
-        # Simplified calculation if only one class involved
-        if 1 in unique_labels: # Assume 1 is Negative, 2 is Positive mapping
-             tn = np.sum((y_true == 1) & (y_pred == 1))
-             fn = np.sum((y_true == 2) & (y_pred == 1))
-             tp = 0
-             fp = 0
-        elif 2 in unique_labels:
-             tp = np.sum((y_true == 2) & (y_pred == 2))
-             fp = np.sum((y_true == 1) & (y_pred == 2))
-             tn = 0
-             fn = 0
-        else: # Should not happen with phenology 1, 2
-            tn, fp, fn, tp = 0, 0, 0, 0
-    else:
-        try:
-            tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[1, 2]).ravel()
-        except ValueError: # If only one label exists despite unique check (edge case)
-             # Fallback logic similar to above
-             if np.all(y_true == 1) and np.all(y_pred == 1): tn, fp, fn, tp = len(y_true), 0, 0, 0
-             elif np.all(y_true == 2) and np.all(y_pred == 2): tn, fp, fn, tp = 0, 0, 0, len(y_true)
-             elif np.all(y_true == 1) and np.all(y_pred == 2): tn, fp, fn, tp = 0, len(y_true), 0, 0
-             elif np.all(y_true == 2) and np.all(y_pred == 1): tn, fp, fn, tp = 0, 0, len(y_true), 0
-             else: tn, fp, fn, tp = 0, 0, 0, 0 # Failsafe
-
-    total = tp + tn + fp + fn
-    metrics = {
-        'tp': int(tp),
-        'fp': int(fp),
-        'tn': int(tn),
-        'fn': int(fn),
-        'accuracy': float((tp + tn) / total) if total > 0 else 0.0,
-        'precision': float(precision_score(y_true, y_pred, labels=[1, 2], average='binary', pos_label=2, zero_division=0)),
-        'recall': float(recall_score(y_true, y_pred, labels=[1, 2], average='binary', pos_label=2, zero_division=0)),
-        'f1_score': float(f1_score(y_true, y_pred, labels=[1, 2], average='binary', pos_label=2, zero_division=0))
+    metrics_results = {
+        'tp': 0, 'fp': 0, 'tn': 0, 'fn': 0,
+        'accuracy': 0.0,
+        'precision_deciduous': 0.0,
+        'recall_deciduous': 0.0,
+        'precision_evergreen': 0.0, 
+        'recall_evergreen': 0.0,
+        'precision_macro': 0.0,
+        'recall_macro': 0.0,
+        'precision_weighted': 0.0,
+        'recall_weighted': 0.0,
+        'f1_evergreen': 0.0,
+        'f1_deciduous': 0.0,
+        'f1_weighted': 0.0,
+        'f1_macro': 0.0
     }
 
-    return metrics
+    # Ensure there are predictions to compute confusion matrix
+    if len(y_true) == 0 or len(y_pred) == 0:
+        return metrics_results # Return default zeroed metrics
+        
+    # --- Calculate all metrics using sklearn functions for robustness --- 
+    labels = [1, 2] # Explicitly define labels for consistency
+    pos_label_evergreen = 2   # Define Evergreen as the positive class for its binary metrics
+    pos_label_deciduous = 1   # Define Deciduous as the positive class for its binary metrics
+
+    try:
+        # Confusion Matrix Components (TN, FP, FN, TP for pos_label=2, i.e. Evergreen)
+        cm = confusion_matrix(y_true, y_pred, labels=labels)
+        if cm.size == 4: # Ensure it's a 2x2 matrix
+            tn, fp, fn, tp = cm.ravel()
+            metrics_results['tn'] = int(tn) # TN for Evergreen means True Deciduous predicted as Deciduous
+            metrics_results['fp'] = int(fp) # FP for Evergreen means False Evergreen (Deciduous predicted as Evergreen)
+            metrics_results['fn'] = int(fn) # FN for Evergreen means False Negative (Evergreen predicted as Deciduous)
+            metrics_results['tp'] = int(tp) # TP for Evergreen means True Evergreen predicted as Evergreen
+        else: # Handle unexpected CM shape (e.g., only one class predicted/present)
+             # Calculate TP/FP/TN/FN manually based on pos_label=2 (Evergreen)
+             metrics_results['tp'] = int(np.sum((y_true == pos_label_evergreen) & (y_pred == pos_label_evergreen)))
+             metrics_results['fp'] = int(np.sum((y_true != pos_label_evergreen) & (y_pred == pos_label_evergreen)))
+             metrics_results['tn'] = int(np.sum((y_true != pos_label_evergreen) & (y_pred != pos_label_evergreen)))
+             metrics_results['fn'] = int(np.sum((y_true == pos_label_evergreen) & (y_pred != pos_label_evergreen)))
+
+        # Accuracy
+        total = metrics_results['tp'] + metrics_results['fp'] + metrics_results['tn'] + metrics_results['fn']
+        metrics_results['accuracy'] = float((metrics_results['tp'] + metrics_results['tn']) / total) if total > 0 else 0.0
+
+        # Precision (Deciduous, Evergreen, Macro, Weighted)
+        metrics_results['precision_deciduous'] = float(precision_score(y_true, y_pred, labels=labels, pos_label=pos_label_deciduous, average='binary', zero_division=0))
+        metrics_results['precision_evergreen'] = float(precision_score(y_true, y_pred, labels=labels, pos_label=pos_label_evergreen, average='binary', zero_division=0))
+        metrics_results['precision_macro'] = float(precision_score(y_true, y_pred, labels=labels, average='macro', zero_division=0))
+        metrics_results['precision_weighted'] = float(precision_score(y_true, y_pred, labels=labels, average='weighted', zero_division=0))
+
+        # Recall (Deciduous, Evergreen, Macro, Weighted)
+        metrics_results['recall_deciduous'] = float(recall_score(y_true, y_pred, labels=labels, pos_label=pos_label_deciduous, average='binary', zero_division=0))
+        metrics_results['recall_evergreen'] = float(recall_score(y_true, y_pred, labels=labels, pos_label=pos_label_evergreen, average='binary', zero_division=0))
+        metrics_results['recall_macro'] = float(recall_score(y_true, y_pred, labels=labels, average='macro', zero_division=0))
+        metrics_results['recall_weighted'] = float(recall_score(y_true, y_pred, labels=labels, average='weighted', zero_division=0))
+        
+        # F1 Scores (Evergreen, Deciduous, Macro, Weighted)
+        metrics_results['f1_evergreen'] = float(f1_score(y_true, y_pred, labels=labels, pos_label=pos_label_evergreen, average='binary', zero_division=0))
+        metrics_results['f1_deciduous'] = float(f1_score(y_true, y_pred, labels=labels, pos_label=pos_label_deciduous, average='binary', zero_division=0))
+        metrics_results['f1_macro'] = float(f1_score(y_true, y_pred, labels=labels, average='macro', zero_division=0))
+        metrics_results['f1_weighted'] = float(f1_score(y_true, y_pred, labels=labels, average='weighted', zero_division=0))
+
+    except Exception as e:
+        # Log error or handle? For now, return the zeroed dict if any error occurs during calculation
+        # Consider adding logging here if needed
+        print(f"Warning: Error calculating metrics: {e}. Returning zeroed metrics.") # Simple print for now
+        # Re-initialize to default zeroed metrics in case of error after partial calculation
+        metrics_results = {
+            'tp': 0, 'fp': 0, 'tn': 0, 'fn': 0,
+            'accuracy': 0.0,
+            'precision_deciduous': 0.0,
+            'recall_deciduous': 0.0,
+            'precision_evergreen': 0.0, 
+            'recall_evergreen': 0.0,
+            'precision_macro': 0.0,
+            'recall_macro': 0.0,
+            'precision_weighted': 0.0,
+            'recall_weighted': 0.0,
+            'f1_evergreen': 0.0,
+            'f1_deciduous': 0.0,
+            'f1_weighted': 0.0,
+            'f1_macro': 0.0
+        }
+
+    return metrics_results
 
 def create_eco_balanced_folds_df(df, n_splits=5, random_state=42):
     """

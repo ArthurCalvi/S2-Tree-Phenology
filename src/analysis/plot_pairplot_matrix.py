@@ -9,37 +9,43 @@ from pathlib import Path
 import logging
 from tqdm import tqdm
 import math # Needed if unscaling involves math constants, good practice
+import json # To load mappings
 
-# Add src directory to sys.path to allow importing from src.utils
+# Add the *project root* directory to sys.path
 try:
     project_root = Path(__file__).resolve().parents[2]
-    src_path = project_root / 'src'
-    if str(src_path) not in sys.path:
-        sys.path.append(str(src_path))
+    if str(project_root) not in sys.path:
+        sys.path.append(str(project_root))
+        print(f"Added project root {project_root} to sys.path") # Debug print
 except NameError:
-    # Fallback if __file__ is not defined
-    src_path = Path('./src').resolve()
-    if str(src_path) not in sys.path:
-        sys.path.append(str(src_path))
+    # Fallback if __file__ is not defined (e.g., interactive)
+    project_root = Path('.').resolve() # Assume running from project root
+    if str(project_root) not in sys.path:
+        sys.path.append(str(project_root))
+        print(f"Added current dir {project_root} as project root to sys.path") # Debug print
 
-try:
-    from utils import unscale_feature, transform_circular_features
-except ImportError as e:
-    print(f"Error importing utils: {e}", file=sys.stderr)
-    print(f"Attempted to add {src_path} to sys.path.", file=sys.stderr)
-    print(f"Current sys.path: {sys.path}", file=sys.stderr)
-    sys.exit(1)
-
-# Set up logging
+# Set up logging *before* the try-except block that uses it
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+try:
+    # Use explicit import relative to the project root
+    from src.utils import unscale_feature, transform_circular_features
+    logger.info("Successfully imported from src.utils") # Debug print
+except ImportError as e:
+    print(f"Error importing from src.utils: {e}", file=sys.stderr)
+    print(f"Current sys.path: {sys.path}", file=sys.stderr)
+    sys.exit(1)
 
 # Define constants
 DEFAULT_DATASET_PATH = 'results/datasets/training_datasets_pixels.parquet'
 INDICES = ['ndvi', 'evi', 'nbr', 'crswir']
 PHENOLOGY_MAPPING = {1: 'Deciduous', 2: 'Evergreen'}
+DEFAULT_MAPPING_PATH = 'data/training/training_tiles2023_w_corsica/training_tiles2023/categorical_mappings.json' # Default path to mapping file
 DEFAULT_OUTPUT_DIR = 'results/analysis/pairplots' # Specific subdirectory for pairplots
-DEFAULT_PLOT_SAMPLE_SIZE = 10000 # Smaller default sample size for pairplots due to complexity
+DEFAULT_PLOT_SAMPLE_SIZE = 140000 # Smaller default sample size for pairplots due to complexity
+# Maximum unique categories to plot for genus/species to avoid overly complex legends/palettes
+MAX_CATEGORIES_FOR_HUE = 50
 
 # Map feature suffixes to unscaling types
 FEATURE_TYPES_TO_UNSCALE = {
@@ -99,7 +105,21 @@ def plot_pairplot(df_subset, index_features, index_name, hue_col, output_dir, pl
         palette = {"Deciduous": "tab:blue", "Evergreen": "tab:orange"}
     elif hue_col == 'eco_region':
         unique_eco_regions = sorted(plot_df['eco_region'].unique())
+        # Use a diverse palette suitable for many categories
         palette = sns.color_palette("husl", len(unique_eco_regions))
+    elif hue_col in ['genus_name', 'species_name']:
+        unique_values = sorted(plot_df[hue_col].unique())
+        n_unique = len(unique_values)
+        if n_unique > MAX_CATEGORIES_FOR_HUE:
+             logger.warning(f"Number of unique values for hue '{hue_col}' ({n_unique}) exceeds maximum ({MAX_CATEGORIES_FOR_HUE}). Plot might be cluttered. Consider filtering.")
+             # Still plot, but use a large palette (e.g., tab20 repeated or husl)
+             palette = sns.color_palette("husl", n_unique)
+        elif n_unique > 20: # Use husl for 21-50 categories
+            palette = sns.color_palette("husl", n_unique)
+        elif n_unique > 10: # Use tab20 for 11-20 categories
+            palette = sns.color_palette("tab20", n_unique)
+        else: # Use tab10 for <= 10 categories
+            palette = sns.color_palette("tab10", n_unique)
     else:
         palette = None # Default seaborn palette
 
@@ -114,6 +134,20 @@ def plot_pairplot(df_subset, index_features, index_name, hue_col, output_dir, pl
             diag_kind='kde' # Use KDE for diagonal plots
         )
         pair_plot.fig.suptitle(f'Pairplot of {index_name.upper()} Features (Hue: {hue_col}) - Sampled {len(plot_df):,} points', y=1.02)
+
+        # Set limits for cos/sin features
+        cos_sin_suffixes = ('_cos', '_sin')
+        for i, row_var in enumerate(pair_plot.y_vars):
+            for j, col_var in enumerate(pair_plot.x_vars):
+                ax = pair_plot.axes[i, j]
+                if i == j: # Skip diagonal plots
+                    continue
+                # Set x-limit if the column variable is cos/sin
+                if col_var.endswith(cos_sin_suffixes):
+                    ax.set_xlim(-1.1, 1.1) # Use slightly wider limits for visual clarity
+                # Set y-limit if the row variable is cos/sin
+                if row_var.endswith(cos_sin_suffixes):
+                    ax.set_ylim(-1.1, 1.1) # Use slightly wider limits for visual clarity
 
         # Save the figure
         output_filename = os.path.join(output_dir, f'pairplot_{index_name}_hue_{hue_col}_sampled.png')
@@ -132,6 +166,8 @@ def main():
                         help=f'Path to the input dataset parquet file (default: {DEFAULT_DATASET_PATH}).')
     parser.add_argument('--output_dir', type=str, default=DEFAULT_OUTPUT_DIR,
                         help=f'Directory to save the output plots (default: {DEFAULT_OUTPUT_DIR}).')
+    parser.add_argument('--mapping_path', type=str, default=DEFAULT_MAPPING_PATH,
+                        help=f'Path to the JSON file containing categorical mappings (default: {DEFAULT_MAPPING_PATH}).')
     parser.add_argument('--plot_sample_size', type=int, default=DEFAULT_PLOT_SAMPLE_SIZE,
                         help=f'Number of points to sample for plotting (default: {DEFAULT_PLOT_SAMPLE_SIZE:,}).')
     parser.add_argument('--test', action='store_true',
@@ -164,8 +200,25 @@ def main():
     else:
         df = df.copy() # Use .copy() to avoid SettingWithCopyWarning
 
+    # Load categorical mappings
+    logger.info(f"Loading categorical mappings from {args.mapping_path}...")
+    if not os.path.exists(args.mapping_path):
+        logger.error(f"Mapping file not found: {args.mapping_path}")
+        sys.exit(1)
+    try:
+        with open(args.mapping_path, 'r') as f:
+            mappings = json.load(f)
+        # Create reversed mappings (ID string -> Name) for genus and species
+        # Ensure keys are strings as parquet stores numerical IDs as strings based on previous check
+        genus_id_to_name = {str(v): k for k, v in mappings.get('genus', {}).items()}
+        species_id_to_name = {str(v): k for k, v in mappings.get('species', {}).items()}
+        logger.info(f"Loaded {len(genus_id_to_name)} genus and {len(species_id_to_name)} species mappings.")
+    except Exception as e:
+        logger.error(f"Failed to load or process mapping file: {e}")
+        sys.exit(1)
+
     # Check required columns
-    required_base_cols = ['phenology', 'eco_region']
+    required_base_cols = ['phenology', 'eco_region', 'genus', 'species'] # Added genus and species
     if not all(col in df.columns for col in required_base_cols):
         missing_req = [col for col in required_base_cols if col not in df.columns]
         logger.error(f"Dataset missing required base columns: {missing_req}. Found: {list(df.columns)}")
@@ -205,6 +258,12 @@ def main():
     df['phenology_label'] = df['phenology'].map(PHENOLOGY_MAPPING)
     logger.info("Circular transformation complete.")
 
+    # Create name columns using mappings
+    logger.info("Creating genus_name and species_name columns from mappings...")
+    df['genus_name'] = df['genus'].astype(str).map(genus_id_to_name).fillna('Unknown')
+    df['species_name'] = df['species'].astype(str).map(species_id_to_name).fillna('Unknown')
+    logger.info("Name columns created.")
+
     # Process each index with tqdm progress bar
     logger.info(f"Starting pairplot generation for indices: {INDICES}")
     for index in tqdm(INDICES, desc="Processing Indices"):
@@ -225,7 +284,7 @@ def main():
             logger.warning(f"Missing some expected features for index '{index}': {missing}")
         
         # Include label columns needed for hue and filtering
-        cols_to_select = available_features + ['phenology_label', 'eco_region']
+        cols_to_select = available_features + ['phenology_label', 'eco_region', 'genus', 'species', 'genus_name', 'species_name']
         # Ensure unique columns
         cols_to_select = sorted(list(set(cols_to_select))) 
         
@@ -248,6 +307,9 @@ def main():
         # Plot pairplots for phenology and eco-region hues
         plot_pairplot(index_data, available_features, index, 'phenology_label', args.output_dir, args.plot_sample_size)
         plot_pairplot(index_data, available_features, index, 'eco_region', args.output_dir, args.plot_sample_size)
+        # Add plots for genus and species hues
+        plot_pairplot(index_data, available_features, index, 'genus_name', args.output_dir, args.plot_sample_size)
+        plot_pairplot(index_data, available_features, index, 'species_name', args.output_dir, args.plot_sample_size)
         logger.debug(f"Pairplot generation complete for {index}.")
 
     logger.info("Pairplot generation script finished successfully.")

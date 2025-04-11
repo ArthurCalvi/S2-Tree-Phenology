@@ -97,7 +97,7 @@ def evaluate_features_cv(df, features, target='phenology', n_splits=5):
 
     # Perform cross-validation
     for fold, (train_idx, val_idx) in enumerate(tqdm(fold_splits, desc="Cross-validation folds")):
-        logger.info(f"=== Fold {fold+1}/{n_splits} ===")
+        # logger.info(f"=== Fold {fold+1}/{n_splits} ===") # Less verbose logging
 
         # Display fold distribution (optional, can be verbose)
         # display_fold_distribution(train_idx, val_idx, df, fold)
@@ -113,7 +113,7 @@ def evaluate_features_cv(df, features, target='phenology', n_splits=5):
             # logger.info(f"Using sample weights for training in fold {fold+1}") # Can be verbose
 
         # Train model
-        logger.info(f"Fold {fold+1}: Training RandomForest on {len(X_train)} samples...")
+        # logger.info(f"Fold {fold+1}: Training RandomForest on {len(X_train)} samples...") # Less verbose logging
         model = RandomForestClassifier(n_estimators=N_ESTIMATORS, random_state=42, n_jobs=-1, class_weight='balanced', max_depth=MAX_DEPTH, min_samples_split=MIN_SAMPLES_SPLIT, min_samples_leaf=MIN_SAMPLES_LEAF)
         model.fit(X_train, y_train, sample_weight=sample_weights)
 
@@ -124,12 +124,13 @@ def evaluate_features_cv(df, features, target='phenology', n_splits=5):
         all_true.extend(y_val)
         all_pred.extend(y_pred)
 
-        # Compute overall metrics for this fold
+        # Compute overall metrics for this fold using the updated compute_metrics
         overall_metrics = compute_metrics(y_val, y_pred)
         overall_metrics['fold'] = fold + 1
         results_per_fold.append(overall_metrics)
 
-        logger.info(f"Fold {fold+1} F1 Score: {overall_metrics['f1_score']:.4f}")
+        # Log key metrics for the fold (e.g., macro F1)
+        logger.info(f"Fold {fold+1}/{n_splits} -> Macro F1: {overall_metrics['f1_macro']:.4f}, Weighted F1: {overall_metrics['f1_weighted']:.4f}, Accuracy: {overall_metrics['accuracy']:.4f}")
 
         # Compute metrics per eco-region for this fold
         eco_regions_in_val = df.iloc[val_idx]['eco_region'].unique()
@@ -139,59 +140,75 @@ def evaluate_features_cv(df, features, target='phenology', n_splits=5):
                 eco_y_val = y_val[eco_mask]
                 eco_y_pred = y_pred[eco_mask]
 
+                # Use the updated compute_metrics here as well
                 eco_metrics = compute_metrics(eco_y_val, eco_y_pred)
                 eco_metrics['fold'] = fold + 1
                 eco_metrics['eco_region'] = eco_region
                 eco_metrics['n_samples'] = len(eco_y_val)
                 results_per_ecoregion[eco_region].append(eco_metrics)
 
-                # logger.info(f"  {eco_region} F1 Score: {eco_metrics['f1_score']:.4f} (on {len(eco_y_val)} samples)") # Can be verbose
+                # logger.info(f"  {eco_region} Macro F1: {eco_metrics['f1_macro']:.4f} (on {len(eco_y_val)} samples)") # Can be verbose
 
     # Aggregate results across folds
     results_df = pd.DataFrame(results_per_fold)
-    overall_metrics_summary = {
-        'mean_f1_score': results_df['f1_score'].mean(),
-        'std_f1_score': results_df['f1_score'].std(),
-        'mean_precision': results_df['precision'].mean(),
-        'std_precision': results_df['precision'].std(),
-        'mean_recall': results_df['recall'].mean(),
-        'std_recall': results_df['recall'].std(),
-        'mean_accuracy': results_df['accuracy'].mean(),
-        'std_accuracy': results_df['accuracy'].std(),
-    }
-    logger.info("=== Overall CV Results ===")
-    for key, value in overall_metrics_summary.items():
-        logger.info(f"{key.replace('_', ' ').title()}: {value:.4f}")
+    
+    # Define metrics to average
+    metrics_to_average = [
+        'accuracy',
+        'precision_deciduous', 'recall_deciduous', 'f1_deciduous',
+        'precision_evergreen', 'recall_evergreen', 'f1_evergreen',
+        'precision_macro', 'recall_macro', 'f1_macro',
+        'precision_weighted', 'recall_weighted', 'f1_weighted'
+    ]
+    
+    overall_metrics_summary = {}
+    for metric in metrics_to_average:
+        overall_metrics_summary[f'mean_{metric}'] = results_df[metric].mean()
+        overall_metrics_summary[f'std_{metric}'] = results_df[metric].std()
+
+    logger.info("=== Overall CV Results (Mean ± Std across folds) ===")
+    # Display key averaged metrics
+    logger.info(f"Accuracy:           {overall_metrics_summary['mean_accuracy']:.4f} ± {overall_metrics_summary['std_accuracy']:.4f}")
+    logger.info(f"F1 Macro:           {overall_metrics_summary['mean_f1_macro']:.4f} ± {overall_metrics_summary['std_f1_macro']:.4f}")
+    logger.info(f"F1 Weighted:        {overall_metrics_summary['mean_f1_weighted']:.4f} ± {overall_metrics_summary['std_f1_weighted']:.4f}")
+    logger.info(f"Precision Macro:    {overall_metrics_summary['mean_precision_macro']:.4f} ± {overall_metrics_summary['std_precision_macro']:.4f}")
+    logger.info(f"Recall Macro:       {overall_metrics_summary['mean_recall_macro']:.4f} ± {overall_metrics_summary['std_recall_macro']:.4f}")
+    logger.info(f"Precision Weighted: {overall_metrics_summary['mean_precision_weighted']:.4f} ± {overall_metrics_summary['std_precision_weighted']:.4f}")
+    logger.info(f"Recall Weighted:    {overall_metrics_summary['mean_recall_weighted']:.4f} ± {overall_metrics_summary['std_recall_weighted']:.4f}")
+    logger.info(f"F1 Deciduous:       {overall_metrics_summary['mean_f1_deciduous']:.4f} ± {overall_metrics_summary['std_f1_deciduous']:.4f}")
+    logger.info(f"F1 Evergreen:       {overall_metrics_summary['mean_f1_evergreen']:.4f} ± {overall_metrics_summary['std_f1_evergreen']:.4f}")
 
     # Aggregate eco-region results
     eco_results_list = []
     for eco_region, metrics_list in results_per_ecoregion.items():
-        metrics_df = pd.DataFrame(metrics_list)
-        avg_metrics = {
-            'eco_region': eco_region,
-            'n_samples_mean': metrics_df['n_samples'].mean(), # Average samples per fold for this region
-            'f1_score': metrics_df['f1_score'].mean(),
-            'f1_std': metrics_df['f1_score'].std(),
-            'precision': metrics_df['precision'].mean(),
-            'precision_std': metrics_df['precision'].std(),
-            'recall': metrics_df['recall'].mean(),
-            'recall_std': metrics_df['recall'].std(),
-            'accuracy': metrics_df['accuracy'].mean(),
-            'accuracy_std': metrics_df['accuracy'].std(),
-        }
+        metrics_df_eco = pd.DataFrame(metrics_list)
+        avg_metrics = {'eco_region': eco_region}
+        # Calculate mean and std for all relevant metrics per eco-region
+        for metric in metrics_to_average:
+             avg_metrics[f'{metric}_mean'] = metrics_df_eco[metric].mean()
+             avg_metrics[f'{metric}_std'] = metrics_df_eco[metric].std()
+        avg_metrics['n_samples_mean'] = metrics_df_eco['n_samples'].mean() # Avg samples per fold
+        avg_metrics['n_samples_total'] = df[df['eco_region'] == eco_region].shape[0] # Total samples in dataset
         eco_results_list.append(avg_metrics)
 
-    eco_results_df = pd.DataFrame(eco_results_list).sort_values('f1_score', ascending=False)
+    eco_results_df = pd.DataFrame(eco_results_list).sort_values('f1_macro_mean', ascending=False) # Sort by mean macro F1
     logger.info("=== Average Results per Eco-Region (Across Folds) ===")
-    # Select and format columns for tabulation
-    cols_to_show = ['eco_region', 'n_samples_mean', 'f1_score', 'f1_std', 'precision', 'recall']
-    table_data = eco_results_df[cols_to_show].round(4)
+    # Select and format columns for tabulation - showing macro and weighted F1
+    cols_to_show = ['eco_region', 'n_samples_total', 'f1_macro_mean', 'f1_macro_std', 'f1_weighted_mean', 'f1_weighted_std', 'accuracy_mean']
+    # Rename columns for better table display
+    col_rename_map = {
+        'f1_macro_mean': 'F1 Macro Mean', 'f1_macro_std': 'F1 Macro Std',
+        'f1_weighted_mean': 'F1 Wgt Mean', 'f1_weighted_std': 'F1 Wgt Std',
+        'accuracy_mean': 'Acc Mean', 'n_samples_total': 'N Samples'
+    }
+    table_data = eco_results_df[cols_to_show].rename(columns=col_rename_map).round(4)
     # Use tabulate for formatted output
     logger.info("\n" + tabulate(table_data, headers='keys', tablefmt='psql', showindex=False))
 
-    # Generate aggregated confusion matrix
+    # Generate aggregated confusion matrix (using all predictions across folds)
     aggregated_cm_array = confusion_matrix(all_true, all_pred, labels=[1, 2])
     cm_text = format_confusion_matrix(aggregated_cm_array, labels=[f'{PHENOLOGY_MAPPING[1]} (1)', f'{PHENOLOGY_MAPPING[2]} (2)'])
+    logger.info("\nAggregated Confusion Matrix (All Folds):")
     logger.info("" + cm_text)
 
     # Add aggregated CM values to the overall summary
@@ -201,6 +218,7 @@ def evaluate_features_cv(df, features, target='phenology', n_splits=5):
     overall_metrics_summary['aggregated_fn'] = int(fn)
     overall_metrics_summary['aggregated_tp'] = int(tp)
 
+    # Return the detailed summary dictionary and the eco-region dataframe
     return overall_metrics_summary, eco_results_df, aggregated_cm_array
 
 

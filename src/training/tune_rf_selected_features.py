@@ -106,9 +106,9 @@ def main():
                         help=f'Path to the dataset parquet file (default: {DATASET_PATH}).')
     parser.add_argument('--factor', type=int, default=3,
                         help='Factor for HalvingGridSearchCV (default: 3).')
-    parser.add_argument('--min_resources', type=int, default=180000,
+    parser.add_argument('--min_resources', type=int, default=700000,
                         help="Minimum resources (samples) for the first iteration of HalvingGridSearchCV. "
-                             "Set large enough so the final iteration uses most of the data. (default: 180000)"
+                             "Set large enough so the final iteration uses most of the data. (default: 700000 -> 5pct of the dataset)"
                              " In test mode, this will be adjusted automatically.")
 
 

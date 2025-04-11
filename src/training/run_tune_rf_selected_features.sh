@@ -34,7 +34,7 @@ mkdir -p $TUNING_DIR
 cd $WORK_DIR
 
 # Define the selected features (same as training script)
-FEATURES="ndvi_amplitude_h1,ndvi_offset,ndvi_var_residual,nbr_amplitude_h1,nbr_amplitude_h2,nbr_offset,nbr_var_residual,crswir_amplitude_h1,crswir_offset,crswir_var_residual"
+FEATURES="ndvi_amplitude_h1,ndvi_phase_h1_cos,ndvi_phase_h1_sin,ndvi_phase_h2_sin,ndvi_offset,nbr_amplitude_h1,nbr_phase_h1_cos,nbr_phase_h2_cos,nbr_offset,nbr_var_residual,crswir_phase_h1_cos,crswir_phase_h2_cos,crswir_offset,crswir_var_residual"
 
 # Run the tuning script
 python $WORK_DIR/src/training/tune_rf_selected_features.py \
