@@ -1140,49 +1140,75 @@ class PhenologyTileDataset(Dataset):
         return stats
 
     def _extract_patches(self):
-        """Extract and process patches from tiles."""
+        """Extract and process patches from tiles using a structured grid approach."""
         all_patches = []
-        rng = np.random.RandomState(self.random_state)
-        half_size = self.patch_size // 2
-        
+        patch_size = self.patch_size
+        half_size = patch_size // 2
+        stride = patch_size - 8 # 8-pixel overlap, so stride is 56
+
         for tile_path in tqdm(self.tile_paths, desc="Extracting patches", leave=False):
             try:
                 with rasterio.open(tile_path) as src:
                     feature_data = src.read(self.feature_bands) # Shape: (n_raw, H, W)
                     phenology_data = src.read(self.phenology_band) # Shape: (H, W)
                     _, height, width = feature_data.shape
-                    
+
+                    if height < patch_size or width < patch_size:
+                        self.logger.debug(f"Skipping tile {tile_path}: dimensions ({height}x{width}) smaller than patch size ({patch_size}).")
+                        continue # Tile too small for even one patch
+
                     tile_id = Path(tile_path).stem.split('_')[1]
                     eco_weight = 1.0
                     if self.use_sample_weights and self.tile_to_eco and self.eco_weights:
                         eco_region = self.tile_to_eco.get(tile_id)
                         if eco_region: eco_weight = self.eco_weights.get(eco_region, 1.0)
 
-                    valid_y_min, valid_y_max = half_size, height - half_size
-                    valid_x_min, valid_x_max = half_size, width - half_size
-                    if not (valid_y_max > valid_y_min and valid_x_max > valid_x_min): continue
+                    # Calculate grid dimensions based on stride
+                    nx = math.floor((width - patch_size) / stride) + 1
+                    ny = math.floor((height - patch_size) / stride) + 1
 
-                    valid_mask_geo = np.zeros((height, width), dtype=bool); valid_mask_geo[valid_y_min:valid_y_max, valid_x_min:valid_x_max] = True
-                    valid_phenology = (phenology_data > 0)
-                    valid_locations_mask = np.logical_and(valid_mask_geo, valid_phenology)
-                    valid_yx = np.column_stack(np.where(valid_locations_mask))
+                    patch_centers = set() # Use set to avoid duplicates if stride is small
 
-                    num_random_patches = 50
-                    random_y = rng.randint(valid_y_min, valid_y_max, num_random_patches)
-                    random_x = rng.randint(valid_x_min, valid_x_max, num_random_patches)
-                    random_yx = np.column_stack((random_y, random_x))
-                    all_yx = np.vstack((valid_yx, random_yx)) if len(valid_yx) > 0 else random_yx
-                    if len(all_yx) == 0: continue
-                    all_yx = shuffle(all_yx, random_state=self.random_state)
-                    
-                    max_patches_per_tile = 100
+                    # Generate primary grid centers
+                    for i in range(ny):
+                        for j in range(nx):
+                            center_y = half_size + i * stride
+                            center_x = half_size + j * stride
+                            # Ensure center allows full patch extraction within bounds
+                            if center_y < height - half_size and center_x < width - half_size:
+                                patch_centers.add((center_y, center_x))
+
+                    # Generate intersection centers (centers between primary grid points)
+                    for i in range(ny - 1):
+                        for j in range(nx - 1):
+                            center_y = half_size + i * stride + stride / 2
+                            center_x = half_size + j * stride + stride / 2
+                            int_center_y = int(round(center_y))
+                            int_center_x = int(round(center_x))
+                            # Ensure center allows full patch extraction within bounds
+                            if int_center_y >= half_size and int_center_y < height - half_size and \
+                               int_center_x >= half_size and int_center_x < width - half_size:
+                                patch_centers.add((int_center_y, int_center_x))
+
                     patch_count = 0
-                    for y, x in all_yx:
-                        feature_patch_raw = feature_data[:, y-half_size:y+half_size, x-half_size:x+half_size]
-                        label_patch = phenology_data[y-half_size:y+half_size, x-half_size:x+half_size]
+                    # Iterate through the calculated structured grid centers
+                    for y, x in patch_centers:
+                        # Coordinates are already checked to allow patch extraction, center is int
+                        y_start, y_end = y - half_size, y + half_size
+                        x_start, x_end = x - half_size, x + half_size
 
-                        if not (np.any(label_patch > 0) and np.all(np.isfinite(feature_patch_raw))): continue
+                        # Ensure indices are integers for slicing (should be, but safety check)
+                        y_start, y_end = int(y_start), int(y_end)
+                        x_start, x_end = int(x_start), int(x_end)
 
+                        feature_patch_raw = feature_data[:, y_start:y_end, x_start:x_end]
+                        label_patch = phenology_data[y_start:y_end, x_start:x_end]
+
+                        # Validation: Check for valid labels and finite features
+                        if not (np.any(label_patch > 0) and np.all(np.isfinite(feature_patch_raw))):
+                            continue
+
+                        # Process features (unscale, transform, normalize) - This logic remains the same
                         processed_features = np.zeros((self.num_output_features, self.patch_size, self.patch_size), dtype=np.float32)
                         out_idx = 0
                         for i, raw_feat_name in enumerate(self.raw_feature_names):
@@ -1211,14 +1237,35 @@ class PhenologyTileDataset(Dataset):
                                     else: processed_features[out_idx] = feat_sin # No normalization
                                     out_idx += 1
                             else:
-                                out_feat_name = self.output_feature_names[out_idx]
-                                if self.global_stats:
+                                # Need to determine the correct output feature name
+                                # Assumption: Non-phase raw features map directly to an output feature
+                                # Find the corresponding output feature name
+                                out_feat_name = None
+                                if raw_feat_name in self.output_feature_names:
+                                     out_feat_name = raw_feat_name
+                                else:
+                                    # This case should ideally not happen if configure_features is correct
+                                    # Try to find the name based on out_idx matching
+                                    if out_idx < len(self.output_feature_names):
+                                         out_feat_name = self.output_feature_names[out_idx]
+                                    else:
+                                         self.logger.error(f"Mismatch finding output feature name for raw: {raw_feat_name} at out_idx {out_idx}")
+                                         # Fallback or raise error? For now, skip normalization if name not found
+                                         processed_features[out_idx] = unscaled_patch_data
+                                         out_idx += 1
+                                         continue # Skip normalization if name lookup failed
+
+                                if out_feat_name and self.global_stats:
                                     mean_val = self.global_stats[out_feat_name]['mean']
                                     std_val = self.global_stats[out_feat_name]['std']
                                     processed_features[out_idx] = (unscaled_patch_data - mean_val) / (std_val + 1e-8)
-                                else: processed_features[out_idx] = unscaled_patch_data # No normalization
-                                out_idx += 1
+                                elif out_feat_name: # If stats not available but name found
+                                    processed_features[out_idx] = unscaled_patch_data # No normalization
+                                # Increment out_idx only if an output feature was processed
+                                if out_feat_name:
+                                     out_idx += 1
                                 
+                        # Append the processed patch
                         all_patches.append({
                             'features': processed_features,
                             'label': label_patch,
@@ -1226,8 +1273,9 @@ class PhenologyTileDataset(Dataset):
                             'weight': eco_weight
                         })
                         patch_count += 1
-                        if patch_count >= max_patches_per_tile: break
-            except Exception as e: self.logger.error(f"Error processing tile {tile_path}: {e}", exc_info=False)
+            except Exception as e:
+                 # Log the error and continue with the next tile
+                 self.logger.error(f"Error processing tile {tile_path}: {e}", exc_info=True) # Add exc_info for traceback
         return all_patches
 
     def __len__(self):

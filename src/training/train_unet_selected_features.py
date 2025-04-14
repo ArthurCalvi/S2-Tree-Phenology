@@ -45,6 +45,8 @@ import datetime # Added
 from pathlib import Path # Added
 import sys # Added
 import math # Good practice
+# Add torch-lr-finder import
+# from torch_lr_finder import LRFinder # Added
 
 # Add project root for imports
 try:
@@ -104,14 +106,15 @@ os.makedirs(DEFAULT_OUTPUT_DIR, exist_ok=True)
 # Constants (can be overridden by CLI)
 PATCH_SIZE = 64
 BATCH_SIZE = 16
-LEARNING_RATE = 0.001
-EPOCHS = 50
+LEARNING_RATE = 0.003
+EPOCHS = 100
 
 # --- Training Function ---
 def train_and_evaluate_unet(
         selected_features, tile_paths, output_dir, model_base_name,
         n_splits=5, patch_size=PATCH_SIZE, batch_size=BATCH_SIZE, epochs=EPOCHS, lr=LEARNING_RATE,
-        use_augmentation=False, use_sample_weights=True, weight_scale=1.0, test_mode=False):
+        use_augmentation=False, use_sample_weights=True, weight_scale=1.0, test_mode=False,
+        run_lr_test=False):
     """Trains and evaluates U-Net using CV with selected features."""
     logger.info(f"Starting U-Net CV Training: {len(selected_features)} features, {n_splits} folds.")
     logger.info(f"Params: Epochs={epochs}, Batch={batch_size}, LR={lr}, Patch={patch_size}, Augment={use_augmentation}, Weights={use_sample_weights} (Scale={weight_scale})")
@@ -146,6 +149,98 @@ def train_and_evaluate_unet(
     
     # Create folds
     fold_splits = create_eco_balanced_folds_tiles(tile_paths, n_splits=n_splits, logger=logger)
+    if not fold_splits or not fold_splits[0][0]: # Check if folds were created and first fold has train tiles
+        logger.error("Could not create folds or first fold has no training tiles. Skipping LR Range Test and training.")
+        return None, None, None, None
+
+    # --- Optional LR Range Test (using first fold's train data) ---
+    if run_lr_test:
+        logger.info("\n--- Running LR Range Test (using first fold data) ---")
+        try:
+            first_fold_train_tiles = fold_splits[0][0]
+            if not first_fold_train_tiles:
+                 raise ValueError("First fold training set is empty.")
+             
+            lr_test_dataset = PhenologyTileDataset(
+                first_fold_train_tiles,
+                selected_features=selected_features,
+                patch_size=patch_size,
+                transform=None, # No augmentation for LR test
+                global_stats=global_stats,
+                use_sample_weights=use_sample_weights, # Use weights if specified
+                logger=logger
+            )
+            # Limit size for faster test if needed, especially on CPU
+            lr_test_size = len(lr_test_dataset)
+            if device.type == 'cpu' and lr_test_size > 500:
+                 lr_test_size = 500
+                 logger.warning(f"CPU detected: Limiting LR test dataset size to {lr_test_size} patches for speed.")
+                 indices = np.random.choice(len(lr_test_dataset), lr_test_size, replace=False)
+                 lr_test_dataset = torch.utils.data.Subset(lr_test_dataset, indices)
+
+            if lr_test_size == 0:
+                 raise ValueError("LR Test dataset is empty after potential subsetting.")
+                 
+            lr_test_loader = DataLoader(lr_test_dataset, batch_size=actual_batch_size, shuffle=True, num_workers=num_workers)
+
+            # Temporary model and optimizer for LR test
+            lr_test_model = SmallUNet(in_channels=num_output_features, n_classes=3).to(device)
+            # Use placeholder weights for criterion during LR find; actual weights calculated per fold later
+            placeholder_weights = torch.tensor([1.0, 1.0], device=device, dtype=torch.float32) 
+            lr_criterion = lambda out, targ: scaled_masked_loss(out, targ, weight=placeholder_weights, sample_weights=None, weight_scale=weight_scale)
+            lr_optimizer = optim.Adam(lr_test_model.parameters(), lr=1e-7) # Start LR very low for finder
+
+            lr_finder = LRFinder(lr_test_model, lr_optimizer, lr_criterion, device=device)
+            logger.info(f"Starting range test with {len(lr_test_loader)} batches...")
+            # Suggest end_lr based on expected range, num_iter can be adjusted
+            lr_finder.range_test(lr_test_loader, end_lr=0.1, num_iter=100, step_mode="exp") 
+            
+            # Plot results
+            lr_plot_path = os.path.join(output_dir, f"{model_base_name}_lr_range_test.png")
+            # Assume plot() returns a tuple, possibly (fig, ax) or just ax.
+            # Let's try to capture the output and handle potential tuple unpacking.
+            plot_output = lr_finder.plot(suggest_lr=True)
+            
+            fig = None
+            if isinstance(plot_output, tuple): # If it's a tuple
+                # Try common patterns: maybe the figure is the first element?
+                if len(plot_output) > 0 and isinstance(plot_output[0], plt.Figure):
+                     fig = plot_output[0]
+                # Or maybe it's the figure associated with the first Axes object?
+                elif len(plot_output) > 0 and hasattr(plot_output[0], 'figure'): 
+                     fig = plot_output[0].figure
+            elif hasattr(plot_output, 'figure'): # If it returns Axes object directly
+                fig = plot_output.figure
+            elif isinstance(plot_output, plt.Figure): # If it returns Figure object directly
+                 fig = plot_output
+
+            if fig: # Check if we successfully got a figure object
+                try:
+                    fig.savefig(lr_plot_path)
+                    logger.info(f"LR Range Test plot saved to: {lr_plot_path}")
+                    plt.close(fig) # Close the plot figure to prevent display
+                except Exception as e_plot:
+                    logger.error(f"Could not save LR Range Test plot: {e_plot}")
+            else:
+                 logger.warning("LR Finder plot generation failed or could not retrieve figure object.")
+
+
+            # Get suggested LR (often the point before divergence or steepest slope)
+            # Note: lr_finder.suggestion() might not exist or be reliable, manual inspection of plot is best.
+            # We log the plot path for manual inspection.
+            min_loss_lr = lr_finder.history['lr'][np.argmin(lr_finder.history['loss'])] if lr_finder.history['loss'] else None
+            logger.info(f"LR Range Test finished. Inspect the plot: {lr_plot_path}")
+            if min_loss_lr: logger.info(f"Hint: Minimum loss occurred around LR={min_loss_lr:.2e}. Optimal LR for OneCycle is often 10x lower than this.")
+
+            lr_finder.reset() # Reset model/optimizer (good practice)
+            del lr_test_model, lr_optimizer, lr_test_loader, lr_test_dataset, lr_finder # Clean up memory
+
+        except Exception as e_lr:
+            logger.error(f"LR Range Test failed: {e_lr}", exc_info=True)
+            logger.warning("Proceeding with training using the provided LR.")
+    # --- End LR Range Test ---
+
+
     all_fold_metrics = []
     tb_log_dir = os.path.join(output_dir, 'tensorboard_logs')
     tb_writer = SummaryWriter(tb_log_dir)
@@ -291,7 +386,7 @@ def train_and_evaluate_unet(
     if not all_fold_metrics:
         logger.error("No folds completed successfully.")
         tb_writer.close()
-        return None, None
+        return None, None, None, None
 
     # Aggregate and Save Results
     results_df = pd.DataFrame(all_fold_metrics)
@@ -332,7 +427,8 @@ def main():
     parser.add_argument('--no_weights', action='store_true', help='Disable eco-region sample weights.')
     parser.add_argument('--weight_scale', type=float, default=1.0, help='Eco-region weight scaling factor (default: 1.0).')
     parser.add_argument('--test', '-t', action='store_true', help='Run in test mode (fewer tiles).')
-    parser.add_argument('--test_tiles', type=int, default=10, help='Number of tiles for test mode (default: 10).')
+    parser.add_argument('--test_tiles', type=int, default=60, help='Number of tiles for test mode (default: 10).')
+    parser.add_argument('--run_lr_test', action='store_true', help='Run the Learning Rate Range Test before training.')
     args = parser.parse_args()
     
     os.makedirs(args.output_dir, exist_ok=True)
@@ -362,7 +458,8 @@ def main():
         selected_features=selected_features, tile_paths=tile_paths, output_dir=args.output_dir,
         model_base_name=args.model_name, n_splits=args.folds, patch_size=args.patch_size,
         batch_size=args.batch_size, epochs=args.epochs, lr=args.lr, use_augmentation=args.augment,
-        use_sample_weights=(not args.no_weights), weight_scale=args.weight_scale, test_mode=args.test
+        use_sample_weights=(not args.no_weights), weight_scale=args.weight_scale, test_mode=args.test,
+        run_lr_test=args.run_lr_test
     )
     elapsed_time = time.time() - start_time
     

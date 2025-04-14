@@ -5,7 +5,7 @@
 #SBATCH --gres=gpu:1             # Request 1 GPU
 #SBATCH --cpus-per-task=8         # Request 8 CPUs for GPU task (Decreased from 10)
 #SBATCH --partition=gpu_p2       # Specify the GPU partition
-#SBATCH --time=02:00:00           # Adjust time if needed
+#SBATCH --time=14:00:00           # Adjust time if needed
 #SBATCH --output=/lustre/fswork/projects/rech/ego/uyr48jk/slurm_logs/%x_%j.out
 #SBATCH --error=/lustre/fswork/projects/rech/ego/uyr48jk/slurm_logs/%x_%j.err
 
@@ -39,6 +39,7 @@ python $WORK_DIR/src/training/train_unet_selected_features.py \
     --output_dir $RESULTS_DIR \
     --model_name "phenology_unet_selected_features_14" \
     --tile_dir $TILE_DIR \
-    --epochs 50 # Maybe reduce epochs for a quick test run
+    --epochs 100 # Maybe reduce epochs for a quick test run
+    --augment 
 
 echo "### Job Finished ###" 
