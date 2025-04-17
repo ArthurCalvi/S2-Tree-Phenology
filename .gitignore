@@ -72,8 +72,34 @@ nosetests.xml
 coverage.xml
 *.cover
 .hypothesis/
+*.tif
+*.tiff
+*.vrt
+*.png
+*.pdf
+*.parquet
+*.geojson
+*.dbf
+*.prj
+*.shx
+*.shp
+*.xml
+*.csv
+*.json
+*.log
+*.txt
+*.md
+*.html
+*.css
+*.js
 
 # Results and data
 results/*
 !results/.gitkeep
 *.log 
+
+# Environments
+.env
+.venv
+env/
+venv/ 

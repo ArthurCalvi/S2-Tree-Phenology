@@ -1296,7 +1296,6 @@ class PhenologyTileDataset(Dataset):
         
         return features, label, weight # Return scalar weight
 
-# ... (rest of the file - loss, evaluation, visualization etc.) ...
 
 # --- Loss Function (Common) ---
 def scaled_masked_loss(outputs, targets, weight=None, sample_weights=None, weight_scale=1.0):
