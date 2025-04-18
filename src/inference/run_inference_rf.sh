@@ -8,7 +8,7 @@
 #SBATCH --time=04:00:00         # Adjust time estimate (e.g., 2 hours)
 #SBATCH --output=/linkhome/rech/gennjv01/uyr48jk/work/slurm_logs/%x_%A_%a.out # Adjust log path
 #SBATCH --error=/linkhome/rech/gennjv01/uyr48jk/work/slurm_logs/%x_%A_%a.err  # Adjust log path
-#SBATCH --array=0-80%4        # ADJUST: Set XXX to (number of feature tiles - 1), YY to concurrency limit
+#SBATCH --array=0-80%2        # ADJUST: Set XXX to (number of feature tiles - 1), YY to concurrency limit
 
 echo "### Running RF Phenology Inference - Task ${SLURM_ARRAY_TASK_ID} ###"
 set -x
