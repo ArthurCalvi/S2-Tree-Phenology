@@ -153,6 +153,24 @@ EFFECTIVE_FOREST_AREA_BY_REGION = {
     "Vosges": 7002.68,  # Total area: 9336.91 km² * forest ratio: 0.75
 }
 
+# Genus mapping based on provided categorical_mappings.json
+GENUS_MAPPING = {
+    1: "alder",
+    2: "ash",
+    3: "beech",
+    4: "birch",
+    5: "chestnut",
+    6: "douglas",
+    7: "fir",
+    8: "hornbeam",
+    9: "larch",
+    10: "locusts",
+    11: "oak",
+    12: "pine",
+    13: "poplar",
+    14: "spruce"
+}
+
 # === U-Net Specific Constants ===
 
 # Define the phenology mapping (label -> name)

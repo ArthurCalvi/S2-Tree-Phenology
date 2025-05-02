@@ -427,7 +427,7 @@ def transform_circular_features(df, indices):
 
 def compute_metrics(y_true, y_pred):
     """
-    Compute classification metrics.
+    Compute classification metrics for **binary** phenology classification.
     
     Args:
         y_true: True labels (assuming 1: Deciduous, 2: Evergreen)
@@ -525,6 +525,103 @@ def compute_metrics(y_true, y_pred):
             'f1_weighted': 0.0,
             'f1_macro': 0.0
         }
+
+    return metrics_results
+
+def compute_multiclass_metrics(y_true, y_pred, labels=None, target_names=None):
+    """
+    Compute classification metrics for multi-class problems.
+
+    Args:
+        y_true: True labels (numpy array).
+        y_pred: Predicted labels (numpy array).
+        labels: Ordered list of labels to include in the report. If None, uses unique labels present in y_true or y_pred.
+        target_names: Optional display names matching the labels (same order).
+
+    Returns:
+        Dictionary of metrics including confusion matrix, accuracy,
+        precision/recall/f1 (macro, weighted, per-class).
+    """
+    from sklearn.metrics import confusion_matrix, accuracy_score, precision_recall_fscore_support
+    
+    # Determine unique labels if not provided
+    if labels is None:
+        labels = np.unique(np.concatenate((y_true, y_pred)))
+    
+    # Ensure target names match labels length if provided
+    if target_names and len(labels) != len(target_names):
+        raise ValueError("Number of labels and target_names must match.")
+    elif target_names is None:
+        target_names = [str(lbl) for lbl in labels] # Use string representation of labels
+
+    # Map labels to target names for per-class results
+    label_to_name = dict(zip(labels, target_names))
+
+    metrics_results = {
+        'confusion_matrix': None,
+        'accuracy': 0.0,
+        'precision_macro': 0.0,
+        'recall_macro': 0.0,
+        'f1_macro': 0.0,
+        'precision_weighted': 0.0,
+        'recall_weighted': 0.0,
+        'f1_weighted': 0.0,
+        'precision_per_class': {}, # Dict mapping class name -> score
+        'recall_per_class': {},
+        'f1_per_class': {}
+    }
+
+    # Ensure there are predictions to compute metrics
+    if len(y_true) == 0 or len(y_pred) == 0:
+        print("Warning: Empty true or predicted labels passed to compute_multiclass_metrics.")
+        metrics_results['confusion_matrix'] = np.zeros((len(labels), len(labels)), dtype=int)
+        return metrics_results # Return default zeroed metrics
+    
+    try:
+        # Confusion Matrix
+        metrics_results['confusion_matrix'] = confusion_matrix(y_true, y_pred, labels=labels)
+
+        # Accuracy
+        metrics_results['accuracy'] = accuracy_score(y_true, y_pred)
+        
+        # Precision, Recall, F1-Score (Macro, Weighted, Per-Class)
+        precision, recall, f1, support = precision_recall_fscore_support(
+            y_true, 
+            y_pred, 
+            labels=labels, 
+            average=None, # Calculate per-class first
+            zero_division=0
+        )
+        
+        # Per-class metrics
+        for i, label in enumerate(labels):
+            class_name = label_to_name[label]
+            metrics_results['precision_per_class'][class_name] = float(precision[i])
+            metrics_results['recall_per_class'][class_name] = float(recall[i])
+            metrics_results['f1_per_class'][class_name] = float(f1[i])
+            
+        # Macro averages (unweighted mean)
+        metrics_results['precision_macro'] = float(np.mean(precision))
+        metrics_results['recall_macro'] = float(np.mean(recall))
+        metrics_results['f1_macro'] = float(np.mean(f1))
+        
+        # Weighted averages (weighted by support)
+        precision_w, recall_w, f1_w, _ = precision_recall_fscore_support(
+            y_true, 
+            y_pred, 
+            labels=labels, 
+            average='weighted', 
+            zero_division=0
+        )
+        metrics_results['precision_weighted'] = float(precision_w)
+        metrics_results['recall_weighted'] = float(recall_w)
+        metrics_results['f1_weighted'] = float(f1_w)
+
+    except Exception as e:
+        print(f"Warning: Error calculating multi-class metrics: {e}. Returning partially calculated or zeroed metrics.")
+        # Ensure CM is at least initialized if error occurred before calculation
+        if metrics_results['confusion_matrix'] is None:
+             metrics_results['confusion_matrix'] = np.zeros((len(labels), len(labels)), dtype=int)
 
     return metrics_results
 
@@ -643,7 +740,7 @@ def display_fold_distribution(train_idx, val_idx, df, fold):
 
 def format_confusion_matrix(cm_array, labels=None):
     """
-    Format confusion matrix numpy array as text for display.
+    Format **binary** confusion matrix numpy array as text for display.
     
     Args:
         cm_array: Confusion matrix as numpy array (2x2)
@@ -667,6 +764,35 @@ def format_confusion_matrix(cm_array, labels=None):
     
     # Define headers
     headers = ["", "Predicted " + labels[0], "Predicted " + labels[1]]
+
+    # Generate table using tabulate
+    cm_text = tabulate(table_data, headers=headers, tablefmt="grid")
+    
+    return "Confusion Matrix:\n" + cm_text
+
+def format_multiclass_confusion_matrix(cm_array, target_names):
+    """
+    Format a multi-class confusion matrix numpy array as text for display.
+
+    Args:
+        cm_array: Confusion matrix as numpy array (NxN).
+        target_names: List of class names corresponding to the rows/columns.
+
+    Returns:
+        String containing formatted confusion matrix.
+    """
+    from tabulate import tabulate # Import tabulate here
+    
+    n_classes = len(target_names)
+    if cm_array.shape != (n_classes, n_classes):
+        return f"Error: Confusion matrix shape {cm_array.shape} does not match number of target names {n_classes}."
+
+    # Prepare data for tabulate
+    headers = ["Actual \\ Predicted"] + list(target_names)
+    table_data = []
+    for i, name in enumerate(target_names):
+        row = [name] + cm_array[i, :].tolist()
+        table_data.append(row)
 
     # Generate table using tabulate
     cm_text = tabulate(table_data, headers=headers, tablefmt="grid")
