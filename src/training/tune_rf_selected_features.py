@@ -23,33 +23,27 @@ project_root = str(Path(__file__).resolve().parent.parent.parent)
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-# Import utility functions
+# Import utility functions and constants
 from src.utils import (
     unscale_feature,
     transform_circular_features,
     create_eco_balanced_folds_df,
-    # Removed unused imports: compute_metrics, display_fold_distribution, format_confusion_matrix
+    compute_metrics, # Needed for potential direct evaluation
+    compute_multiclass_metrics, # Needed for potential direct evaluation
+    count_rf_parameters # Added import
+)
+from src.constants import (
+    PHENOLOGY_MAPPING,
+    GENUS_MAPPING
 )
 
 # --- Configuration ---
 
-# Set up logging
-os.makedirs('logs', exist_ok=True)
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/selected_features_tuning.log'), # Changed log file name
-        logging.StreamHandler()
-    ]
-)
+# Set up logging (will be configured later based on target)
 logger = logging.getLogger(__name__)
 
 # Define the path to the dataset (can be overridden by command line)
 DATASET_PATH = 'results/datasets/training_datasets_pixels.parquet'
-
-# Define the phenology mapping (optional, for potential future use in analysis)
-PHENOLOGY_MAPPING = {1: 'Deciduous', 2: 'Evergreen'}
 
 # Define the base indices needed for feature transformation
 INDICES = ['ndvi', 'evi', 'nbr', 'crswir']
@@ -66,22 +60,7 @@ FEATURE_TYPES_TO_UNSCALE = {
 
 # --- Helper Functions ---
 
-def count_rf_parameters(rf_model):
-    """
-    Count the number of parameters in a RandomForest model.
-    (Copied from train_rf_selected_features.py)
-    """
-    n_estimators = len(rf_model.estimators_)
-    total_nodes = sum(tree.tree_.node_count for tree in rf_model.estimators_)
-    n_classes = rf_model.n_classes_
-    params_per_node = 2 + n_classes
-    total_parameters = total_nodes * params_per_node
-    return {
-        'n_estimators': n_estimators,
-        'n_nodes': total_nodes,
-        'params_per_node': params_per_node,
-        'total_parameters': total_parameters
-    }
+# Removed count_rf_parameters function definition from here
 
 # --- Main Execution ---
 
@@ -92,10 +71,11 @@ def main():
                         help='Comma-separated list of feature names to use for tuning.')
     parser.add_argument('--output_dir', '-o', type=str, default='results/tuning',
                         help='Directory to save the tuning results and best model (default: results/tuning).')
-    parser.add_argument('--results_name', '-r', type=str, default='tuning_results.json',
-                        help='Filename for the tuning results JSON output (default: tuning_results.json).')
-    parser.add_argument('--best_model_name', '-m', type=str, default='best_phenology_model.joblib',
-                        help='Filename for the saved best model (default: best_phenology_model.joblib).')
+    # Removed default names, will be set based on target
+    parser.add_argument('--results_name', '-r', type=str, default=None,
+                        help='Filename for the tuning results JSON output (e.g., tuning_results_phenology.json). Default is based on target.')
+    parser.add_argument('--best_model_name', '-m', type=str, default=None,
+                        help='Filename for the saved best model (e.g., best_phenology_model.joblib). Default is based on target.')
     parser.add_argument('--test', '-t', action='store_true',
                         help='Run in test mode with a small subset of data.')
     parser.add_argument('--test_size', type=int, default=10000,
@@ -110,15 +90,35 @@ def main():
                         help="Minimum resources (samples) for the first iteration of HalvingGridSearchCV. "
                              "Set large enough so the final iteration uses most of the data. (default: 700000 -> 5pct of the dataset)"
                              " In test mode, this will be adjusted automatically.")
+    parser.add_argument('--target_column', type=str, default='phenology', choices=['phenology', 'genus'],
+                        help='Target column for tuning (phenology or genus).')
 
 
     args = parser.parse_args()
 
-    # Create output directory
-    os.makedirs(args.output_dir, exist_ok=True)
+    # --- Configure Logging based on Target ---
+    log_file_name = f'logs/selected_features_tuning_{args.target_column}.log'
+    os.makedirs('logs', exist_ok=True)
+    # Remove existing handlers if any were configured at module level
+    for handler in logger.handlers[:]:
+        logger.removeHandler(handler)
+    # Configure logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - [%(filename)s:%(lineno)d] - %(message)s', # Added filename/line no
+        handlers=[
+            logging.FileHandler(log_file_name),
+            logging.StreamHandler()
+        ]
+    )
 
-    logger.info("Starting hyperparameter tuning script")
-    logger.info(f"Output directory: {args.output_dir}")
+
+    # Create output directory
+    output_dir = Path(args.output_dir) / args.target_column # Subdirectory for target
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    logger.info(f"Starting hyperparameter tuning script for target: {args.target_column}")
+    logger.info(f"Output directory: {output_dir}")
     if args.test:
         logger.info(f"Running in TEST MODE with {args.test_size} samples")
 
@@ -127,24 +127,35 @@ def main():
     try:
         df = pd.read_parquet(args.dataset_path)
         logger.info(f"Dataset loaded: {len(df)} samples")
+    except FileNotFoundError:
+        logger.error(f"Dataset file not found: {args.dataset_path}")
+        sys.exit(1)
     except Exception as e:
-        logger.error(f"Failed to load dataset from {args.dataset_path}: {e}")
-        return
+        logger.error(f"Failed to load dataset: {e}")
+        sys.exit(1)
 
-    # If in test mode, use only a subset of the data
+    # Check if target column exists
+    if args.target_column not in df.columns:
+        logger.error(f"Target column '{args.target_column}' not found in the dataset. Available columns: {df.columns.tolist()}")
+        sys.exit(1)
+
+    # If in test mode, use only a subset of the data, stratified by target
     if args.test:
         if len(df) > args.test_size:
-            logger.info(f"Sampling {args.test_size} records for test mode...")
-            if 'phenology' in df.columns and len(df['phenology'].unique()) > 1:
-                 df = df.groupby('phenology', group_keys=False).apply(lambda x: x.sample(min(len(x), args.test_size // len(df['phenology'].unique())), random_state=42))
-            else:
+            logger.info(f"Sampling {args.test_size} records for test mode (stratified by {args.target_column})...")
+            n_classes = df[args.target_column].nunique()
+            sample_per_class = args.test_size // n_classes if n_classes > 0 else args.test_size
+            if n_classes > 1:
+                 df = df.groupby(args.target_column, group_keys=False).apply(
+                     lambda x: x.sample(min(len(x), sample_per_class), random_state=42)
+                 )
+            else: # Handle case with only one class present (unlikely but possible)
                  df = df.sample(args.test_size, random_state=42)
             logger.info(f"Using subset of data: {len(df)} samples")
         else:
             logger.warning(f"Test size ({args.test_size}) is larger than dataset size ({len(df)}). Using full dataset.")
 
-
-    # --- Unscale Features --- 
+    # --- Unscale Features ---
     logger.info("Unscaling features to physical ranges...")
     unscaled_count = 0
     skipped_cols = []
@@ -161,15 +172,15 @@ def main():
                     )
                     unscaled_count += 1
                 except Exception as e:
-                    logger.error(f"Error unscaling column {col_name}: {e}")
+                    logger.warning(f"Could not unscale column {col_name}: {e}") # Use warning
                     skipped_cols.append(col_name)
-            else:
-                skipped_cols.append(col_name)
+            # else: # Reduce verbosity
+            #     skipped_cols.append(col_name)
     df = df_copy # Assign back the modified DataFrame
     logger.info(f"Unscaling complete. Processed {unscaled_count} columns.")
-    if skipped_cols:
-        unique_skipped = sorted(list(set(skipped_cols)))
-        # logger.debug(f"Skipped/Not Found {len(unique_skipped)} columns during unscaling: {unique_skipped[:5]}...")
+    # if skipped_cols: # Reduce verbosity
+    #     unique_skipped = sorted(list(set(skipped_cols)))
+    #     logger.debug(f"Skipped/Not Found {len(unique_skipped)} columns during unscaling: {unique_skipped[:5]}...")
 
     # Apply cos/sin transformation (needed if phase features are included)
     logger.info("Applying circular transformation to unscaled (radian) phase features...")
@@ -185,14 +196,38 @@ def main():
     missing_features = [f for f in selected_features if f not in available_features]
     if missing_features:
         logger.error(f"Error: The following requested features are not found in the dataset: {missing_features}")
-        return
+        sys.exit(1)
 
-    logger.info(f"Preparing data and CV splits for {len(selected_features)} features.")
+    logger.info(f"Preparing data and CV splits for {len(selected_features)} features and target '{args.target_column}'.")
 
-    # Prepare data
+    # Prepare data (X, y, groups)
     X = df[selected_features]
-    y = df['phenology']
+    y = df[args.target_column] # Use specified target column
     groups = df['eco_region'] # Needed for StratifiedGroupKFold logic in create_eco_balanced_folds_df
+
+    # --- Target-Specific Configuration ---
+    if args.target_column == 'phenology':
+        target_mapping = PHENOLOGY_MAPPING
+        # Use 'weighted' F1 for binary classification, robust to imbalance
+        scoring_average = 'weighted'
+        metrics_func = compute_metrics
+        metrics_func_kwargs = {}
+        class_weight = 'balanced' # Suitable for binary
+    elif args.target_column == 'genus':
+        target_mapping = GENUS_MAPPING
+        # Use 'macro' F1 for multiclass, treats all classes equally
+        scoring_average = 'macro'
+        metrics_func = compute_multiclass_metrics
+        metrics_func_kwargs = {'labels': sorted(GENUS_MAPPING.keys()), 'target_names': [GENUS_MAPPING[k] for k in sorted(GENUS_MAPPING.keys())]}
+        class_weight = 'balanced' # Suitable start for multiclass
+        logger.info(f"Using genus mapping: {target_mapping}")
+    else:
+        # This case should not be reached due to argparse 'choices'
+        logger.error(f"Invalid target column specified: {args.target_column}")
+        sys.exit(1)
+
+    logger.info(f"Target mapping defined: {len(target_mapping)} classes.")
+    logger.info(f"Using '{scoring_average}' average for F1 scoring.")
 
     # Create eco-region balanced folds
     # create_eco_balanced_folds_df returns a list of (train_idx, test_idx) tuples
@@ -211,12 +246,11 @@ def main():
     # Define the base model
     # class_weight='balanced' is important for potentially imbalanced classes
     # n_jobs=-1 uses all available cores
-    rf = RandomForestClassifier(random_state=42, class_weight='balanced', n_jobs=-1)
+    rf = RandomForestClassifier(random_state=42, class_weight=class_weight, n_jobs=-1)
 
-    # Define the scoring metric (F1 macro average)
-    # Using average='macro' calculates metrics for each label, and finds their unweighted mean.
-    # This does not take label imbalance into account. Consider 'f1_weighted' if desired.
-    f1_scorer = make_scorer(f1_score, average='macro')
+    # Define the scoring metric using the target-specific average
+    f1_scorer = make_scorer(f1_score, average=scoring_average)
+    logger.info(f"Scorer set to F1 score with average='{scoring_average}'.")
 
     # Handle sample weights if available
     fit_params = {}
@@ -259,7 +293,7 @@ def main():
         estimator=rf,
         param_grid=param_grid,
         cv=fold_splits,
-        scoring=f1_scorer,
+        scoring=f1_scorer, # Use the defined scorer
         factor=args.factor,
         min_resources=actual_min_resources,
         aggressive_elimination=False, # Can set to True for faster search if resources are limited
@@ -306,7 +340,7 @@ def main():
 
     logger.info("--- Tuning Results ---")
     logger.info(f"Best Parameters Found: {search.best_params_}")
-    logger.info(f"Best F1 Macro Score (CV): {search.best_score_:.4f}")
+    logger.info(f"Best F1 Score ({scoring_average} avg) (CV): {search.best_score_:.4f}")
 
     # Get the best model
     best_model = search.best_estimator_
@@ -316,8 +350,9 @@ def main():
 
     # Prepare results for saving
     results_to_save = {
+        'target_column': args.target_column, # Added target column info
         'best_params': search.best_params_,
-        'best_score_f1_macro': search.best_score_,
+        f'best_score_f1_{scoring_average}': search.best_score_, # Scorer name in key
         'selected_features': selected_features,
         'cv_n_splits': args.n_splits,
         'halving_factor': args.factor,
@@ -327,44 +362,28 @@ def main():
         'cv_results': {k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in search.cv_results_.items()} # Convert numpy arrays for JSON
     }
 
-    # Modify output names to include date
+    # Modify output names to include date and target
     current_date = datetime.datetime.now().strftime("%Y%m%d")
 
-    # Dated results name
-    if args.results_name.endswith('.json'):
-        base_results_name = args.results_name.replace('.json', '')
-    else:
-        base_results_name = args.results_name
-    dated_results_name = f"{base_results_name}_{current_date}.json"
-    results_path = os.path.join(args.output_dir, dated_results_name)
+    # Determine default names if not provided
+    default_results_name = f"tuning_results_{args.target_column}_{current_date}.json"
+    default_model_name = f"best_{args.target_column}_model_{current_date}.joblib"
 
-    # Dated model name
-    if args.best_model_name.endswith('.joblib'):
-        base_model_name = args.best_model_name.replace('.joblib', '')
-    else:
-        base_model_name = args.best_model_name
-    dated_model_name = f"{base_model_name}_{current_date}.joblib"
-    model_path = os.path.join(args.output_dir, dated_model_name)
+    results_name = args.results_name if args.results_name else default_results_name
+    model_name = args.best_model_name if args.best_model_name else default_model_name
+
+    results_path = output_dir / results_name
+    model_path = output_dir / model_name
 
 
     # Save tuning results to JSON
     try:
         with open(results_path, 'w') as f:
-            json.dump(results_to_save, f, indent=4)
+            # Use default=str to handle potential non-serializable numpy types gracefully
+            json.dump(results_to_save, f, indent=4, default=str)
         logger.info(f"Tuning results saved successfully to: {results_path}")
-    except TypeError as te:
-        logger.error(f"Error saving tuning results to JSON: {te}. Check for non-serializable types.")
-        # Attempt to save without full cv_results if serialization fails
-        try:
-            del results_to_save['cv_results'] # Remove potentially problematic part
-            with open(results_path, 'w') as f:
-                json.dump(results_to_save, f, indent=4)
-            logger.warning(f"Saved partial tuning results (without full cv_results) to: {results_path}")
-        except Exception as e_partial:
-            logger.error(f"Error saving partial tuning results: {e_partial}")
     except Exception as e:
         logger.error(f"Error saving tuning results to {results_path}: {e}")
-
 
     # Save the best model
     try:
@@ -373,7 +392,7 @@ def main():
     except Exception as e:
         logger.error(f"Error saving best model to {model_path}: {e}")
 
-    logger.info("Script completed successfully.")
+    logger.info(f"Script completed successfully for target '{args.target_column}'.")
 
 if __name__ == "__main__":
     main() 

@@ -1548,3 +1548,45 @@ def prepare_unet_images_for_tensorboard(batch_inputs, batch_labels, batch_preds,
         label_rgb = cmap[labels_np[i]]; vis_images[f'{tag_prefix}/Ground_Truth/{i}'] = torch.from_numpy(label_rgb).permute(2, 0, 1)
         pred_rgb = cmap[preds_np[i]]; vis_images[f'{tag_prefix}/Prediction/{i}'] = torch.from_numpy(pred_rgb).permute(2, 0, 1)
     return vis_images
+
+def count_rf_parameters(rf_model):
+    """
+    Count the number of parameters in a RandomForest model.
+    (Copied from train_rf_selected_features.py)
+    """
+    try:
+        # Handle cases where the model might not be fitted or has no estimators
+        if not hasattr(rf_model, 'estimators_') or not rf_model.estimators_:
+            return {
+                'n_estimators': 0,
+                'n_nodes': 0,
+                'params_per_node': 0,
+                'total_parameters': 0
+            }
+            
+        n_estimators = len(rf_model.estimators_)
+        total_nodes = sum(tree.tree_.node_count for tree in rf_model.estimators_)
+        n_classes = rf_model.n_classes_
+        
+        # Simplified parameter count: nodes store split criteria (feature, threshold) and value per class at leaves.
+        # A rough estimate might consider 2 values per internal node + n_classes per leaf node.
+        # A simpler approach used in the original script:
+        params_per_node = 2 + n_classes # Assuming 2 params for split + n_classes for output values
+        total_parameters = total_nodes * params_per_node
+        
+        return {
+            'n_estimators': n_estimators,
+            'n_nodes': total_nodes,
+            'params_per_node': params_per_node,
+            'total_parameters': total_parameters
+        }
+    except AttributeError as e:
+        # Log error if attributes like n_classes_ or estimators_ are missing
+        logger = logging.getLogger(__name__) # Get logger instance
+        logger.warning(f"Could not count RF parameters, model might not be fitted correctly: {e}")
+        return {
+            'n_estimators': 'N/A',
+            'n_nodes': 'N/A',
+            'params_per_node': 'N/A',
+            'total_parameters': 'N/A'
+        }
