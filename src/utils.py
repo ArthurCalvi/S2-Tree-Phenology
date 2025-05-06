@@ -740,30 +740,42 @@ def display_fold_distribution(train_idx, val_idx, df, fold):
 
 def format_confusion_matrix(cm_array, labels=None):
     """
-    Format **binary** confusion matrix numpy array as text for display.
+    Format a **binary** confusion matrix numpy array as text for display.
     
     Args:
-        cm_array: Confusion matrix as numpy array (2x2)
-        labels: List of labels for display, e.g. ["Pheno 1 (Deciduous)", "Pheno 2 (Evergreen)"]
+        cm_array: Confusion matrix as numpy array (must be 2x2).
+        labels: List of two labels for display, e.g. ["Class 0", "Class 1"].
+                Order should correspond to the CM: labels[0] for row/col 0, labels[1] for row/col 1.
         
     Returns:
-        String containing formatted confusion matrix
+        String containing formatted confusion matrix, or an error message if cm_array is not 2x2.
     """
     from tabulate import tabulate # Import tabulate here
 
-    if labels is None:
-        labels = ["Pheno 1 (Deciduous)", "Pheno 2 (Evergreen)"] # Assuming 1=Deciduous, 2=Evergreen
+    if cm_array.shape != (2, 2):
+        return "Error: format_confusion_matrix is designed for 2x2 matrices only."
 
+    if labels is None or len(labels) != 2:
+        # Default labels if not provided or incorrect length
+        display_labels = ["Class 0", "Class 1"]
+        # Log a warning if labels were provided but incorrect, so user is aware
+        if labels is not None:
+            # Assuming logger is configured elsewhere or add a basic print warning
+            print(f"Warning: Invalid labels provided to format_confusion_matrix. Expected 2 labels, got {len(labels)}. Using default.")
+    else:
+        display_labels = labels
+
+    # Extract values assuming cm_array is confirmed to be 2x2
     tn, fp, fn, tp = cm_array.ravel()
 
     # Prepare data for tabulate
     table_data = [
-        ["Actual " + labels[0], tn, fp],
-        ["Actual " + labels[1], fn, tp]
+        ["Actual " + display_labels[0], tn, fp],
+        ["Actual " + display_labels[1], fn, tp]
     ]
     
     # Define headers
-    headers = ["", "Predicted " + labels[0], "Predicted " + labels[1]]
+    headers = ["", "Predicted " + display_labels[0], "Predicted " + display_labels[1]]
 
     # Generate table using tabulate
     cm_text = tabulate(table_data, headers=headers, tablefmt="grid")
