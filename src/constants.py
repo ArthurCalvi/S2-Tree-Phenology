@@ -153,6 +153,9 @@ EFFECTIVE_FOREST_AREA_BY_REGION = {
     "Vosges": 7002.68,  # Total area: 9336.91 km² * forest ratio: 0.75
 }
 
+# List of all eco-regions (English names, consistent with dataset)
+ALL_ECO_REGIONS = list(EFFECTIVE_FOREST_AREA_BY_REGION.keys())
+
 # Genus mapping based on provided categorical_mappings.json
 GENUS_MAPPING = {
     1: "alder",
