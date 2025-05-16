@@ -390,7 +390,7 @@ def main():
 
     # --- Final Model Training ---
     start_time_train = time.time()
-    final_model = git a(df, selected_features, target='phenology')
+    final_model = train_final_model(df, selected_features, target='phenology')
     train_time = time.time() - start_time_train
     logger.info(f"Final model training completed in {train_time:.2f} seconds")
 
