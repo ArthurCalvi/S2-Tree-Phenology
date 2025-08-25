@@ -42,6 +42,32 @@ Output:
   formatted as '<output_filename>_vs_<ref_type>.parquet',
   containing metrics (OA, Kappa, P, R, F1), agreement percentages,
   agreement counts, and the native geometry object for each processed block.
+
+CLI Examples:
+-------------
+Comparison with DLT:
+```
+python src/comparison/compare_maps.py \\
+    --custom-map "/Users/arthurcalvi/Data/phenology/forest_classification.tif" \\
+    --ref-map "/Users/arthurcalvi/Data/species/DLT_2018_010m_fr_03035_v020/DLT_Dominant_Leaf_Type_France.tif" \\
+    --ref-type DLT \\
+    --eco-map "/Users/arthurcalvi/Data/eco-regions/France/greco.tif" \\
+    --output-dir "results/comparison" \\
+    --output-filename "custom_vs_dlt_metrics" \\
+    --block-size 2048
+```
+
+Comparison with BDForet:
+```
+python src/comparison/compare_maps.py \\
+    --custom-map "/Users/arthurcalvi/Data/phenology/forest_classification.tif" \\
+    --ref-map "/Users/arthurcalvi/Data/Disturbances_maps/BDForet/bdforet_10_FF1_FF2_EN_year_raster.tif" \\
+    --ref-type BDForet \\
+    --eco-map "/Users/arthurcalvi/Data/eco-regions/France/greco.tif" \\
+    --output-dir "results/comparison" \\
+    --output-filename "custom_vs_bdforet_metrics" \\
+    --block-size 2048
+```
 """
 
 import argparse

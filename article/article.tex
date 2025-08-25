@@ -3,6 +3,7 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \documentclass[utf8]{FrontiersinHarvard}
 \usepackage{url,hyperref,lineno,microtype,subcaption}
+\usepackage{natbib}
 \usepackage[onehalfspacing]{setspace}
 \usepackage{float}
 \usepackage{multirow}
@@ -29,18 +30,18 @@ $^{2}$ Laboratory Y, Institute Y, Department Y, City Y, Country Y}
 \maketitle
 
 \begin{abstract}
-Effective forest monitoring requires distinguishing normal seasonal changes from disturbance events. Löw et al. (2020) showed that incorporating phenological information—whether trees are deciduous or evergreen—significantly reduces false disturbance alerts in satellite-based monitoring systems. Europe lacks this fundamental layer: while Copernicus DLT classifies broadleaf versus conifer at 10\,m resolution, it cannot distinguish evergreen oak from deciduous beech. France's BD Forêt V2 provides phenological classes but remains static (2005–2019 compilation). We present France's first annual 10\,m deciduous-evergreen map using harmonic analysis of Sentinel-2 time series. Our method compresses each pixel's annual cycle into 14 harmonic features capturing seasonal amplitude, timing, and consistency. A Random Forest classifier with 50 trees and eco-region balanced cross-validation achieves 90\% accuracy on 14 million reference pixels. The approach produces national maps in under an hour, enabling annual updates that existing products cannot provide.
+Effective forest monitoring requires distinguishing normal seasonal changes from disturbance events. Europe lacks a fundamental phenological layer: while Copernicus DLT classifies broadleaf versus conifer at 10\,m resolution, it cannot distinguish evergreen oak from deciduous beech. France's BD Forêt V2 provides phenological classes but remains static (2005–2019 compilation). We present France's first annual 10\,m deciduous-evergreen map using harmonic analysis of Sentinel-2 time series. Our method compresses each pixel's annual cycle into 14 harmonic features capturing seasonal amplitude, timing, and consistency. A Random Forest classifier trained on 14 million reference pixels with eco-region balanced cross-validation achieves high accuracy, producing national maps in under an hour and enabling annual updates that existing products cannot provide.
 
 \keyFont{\section{Keywords:} deciduous-evergreen classification, harmonic analysis, Sentinel-2, Random Forest, France}
 \end{abstract}
 
 \section{Introduction}
 
-Satellite-based forest monitoring systems face a fundamental challenge: distinguishing genuine disturbance events from normal seasonal changes. Löw et al. (2020) demonstrated that incorporating phenological information—whether trees are deciduous or evergreen—eliminated most false disturbance alerts in Austrian forests. Similarly, Hargrove et al. (2009) showed that the U.S. eMODIS monitoring system required phenology filters to separate true forest threats from seasonal transitions. These studies highlight a critical need: operational forest surveillance requires knowing not just where trees grow, but how they behave through the seasons.
+Satellite-based forest monitoring systems face a fundamental challenge: distinguishing genuine disturbance events from normal seasonal changes. \citet{Low2020} developed a time series analysis framework that accounts for phenological patterns by creating robust multiyear phenology models for each pixel, using deviations from these baseline phenological courses to identify forest disturbances in Austrian forests. Similarly, \citet{Hargrove2009} showed that the U.S. eMODIS monitoring system required phenology filters to separate true forest threats from seasonal transitions. These studies highlight a critical need: operational forest surveillance requires knowing not just where trees grow, but how they behave through the seasons. While Löw et al. model phenology to detect deviations, we directly classify forest types based on their inherent phenological signatures.
 
-Yet Europe lacks this fundamental layer. The Copernicus Dominant Leaf Type product (EU, 2024a) tells us whether a pixel contains broadleaf or coniferous trees at 10\,m resolution, but a Mediterranean cork oak (evergreen broadleaf) appears identical to a northern beech (deciduous broadleaf). France's BD Forêt V2 (IGN, 2024) does classify deciduous versus evergreen, but as a static compilation from 2005–2019 aerial photos, it cannot track annual variations or recent disturbances.
+Yet Europe lacks this fundamental layer. The Copernicus Dominant Leaf Type product \citep{EU2024a} tells us whether a pixel contains broadleaf or coniferous trees at 10\,m resolution, but a Mediterranean cork oak (evergreen broadleaf) appears identical to a northern beech (deciduous broadleaf). France's BD Forêt V2 \citep{IGN2024} does classify deciduous versus evergreen, but as a static compilation from 2005–2019 aerial photos, it cannot track annual variations or recent disturbances.
 
-This distinction matters because deciduous and evergreen forests represent fundamentally different ecological strategies. Deciduous species maximize photosynthetic capacity during favorable seasons but sacrifice year-round productivity, while evergreen species maintain steady-state photosynthesis across seasons with lower peak rates (Jarvis \& Leverenz, 1983). These physiological differences create distinct temporal signatures in satellite observations, making phenological classification both scientifically meaningful and practically achievable. Moreover, temperate forests increasingly form complex deciduous-evergreen mosaics shaped by disturbance regimes and species interactions (Frelich, 2002), requiring high-resolution mapping to capture fine-scale heterogeneity essential for forest management and ecological understanding.
+This distinction matters because deciduous and evergreen forests represent fundamentally different ecological strategies. Deciduous species maximize photosynthetic capacity during favorable seasons but sacrifice year-round productivity, while evergreen species maintain steady-state photosynthesis across seasons with lower peak rates \citep{JarvisLeverenz1983}. These physiological differences create distinct temporal signatures in satellite observations, making phenological classification both scientifically meaningful and practically achievable. Moreover, temperate forests increasingly form complex deciduous-evergreen mosaics shaped by disturbance regimes and species interactions \citep{Frelich2002}, requiring high-resolution mapping to capture fine-scale heterogeneity essential for forest management and ecological understanding.
 
 This paper presents France's first annual 10\,m deciduous-evergreen map, built on three key innovations:
 \begin{enumerate}
@@ -49,26 +50,26 @@ This paper presents France's first annual 10\,m deciduous-evergreen map, built o
     \item \textbf{Operational efficiency} — The entire country processes in under an hour, enabling annual updates
 \end{enumerate}
 
-Our method achieves 90\% accuracy while remaining computationally efficient and scientifically interpretable. This work builds on the demonstrated feasibility of national-scale automated mapping using Sentinel-2 time-series and Random Forest classifiers, as shown by Inglada et al. (2017) who achieved 86\% accuracy mapping 17 land cover classes across France, establishing the foundation for operational satellite-based monitoring at country scale.
+Our method achieves 90\% accuracy while remaining computationally efficient and scientifically interpretable. This work builds on the demonstrated feasibility of national-scale automated mapping using Sentinel-2 time-series and Random Forest classifiers, as shown by \citet{Inglada2017} who achieved 86\% accuracy mapping 17 land cover classes across France, establishing the foundation for operational satellite-based monitoring at country scale.
 
 \section{Related Work}
 
 Time-series analysis of vegetation has evolved along two paths: precise but computationally intensive curve-fitting methods, and efficient but less interpretable machine learning approaches. We chose a middle way that balances accuracy with operational feasibility.
 
-Traditional phenology extraction tools like TIMESAT and HR-VPP excel at pinpointing exact green-up and senescence dates through logistic curve fitting (Jönsson \& Eklundh, 2002; EU, 2024b). However, their pixel-by-pixel optimization becomes prohibitively slow at 10\,m resolution across national scales. Change detection algorithms like BEAST and CCDC can identify abrupt forest disturbances but require GPU clusters and provide more detail than needed for binary deciduous-evergreen classification.
+Traditional phenology extraction tools like TIMESAT and HR-VPP excel at pinpointing exact green-up and senescence dates through logistic curve fitting \citep{JonssonEklundh2002, EU2024b}. However, their pixel-by-pixel optimization becomes prohibitively slow at 10\,m resolution across national scales. The Copernicus High Resolution Vegetation Phenology and Productivity (HR-VPP) service provides 13 detailed phenological parameters at 10\,m resolution, but its complexity and computational demands exceed what is needed for binary deciduous-evergreen classification.
 
-At the other extreme, deep learning methods—whether convolutional networks or LSTMs processing raw image stacks—can leverage spatial context and learn complex patterns. Yet they demand massive labeled datasets (typically >100 million pixels) and operate as black boxes, making validation and interpretation challenging for operational forestry.
+At the other extreme, deep learning methods—whether convolutional networks, LSTMs, or modern Transformer architectures processing raw image stacks—can leverage spatial context and learn complex patterns. Transformer-based models with self-attention mechanisms and pre-training strategies like SatMAE (Satellite Masked Autoencoder) \citep{Cong2022} have shown promising results, achieving up to 7\% improvement over previous methods. Yet they demand massive labeled datasets (typically >100 million pixels), substantial computational resources, and operate as black boxes, making validation and interpretation challenging for operational forestry. Moreover, their high computational complexity and exponential scaling with image size make them impractical for our goal of efficient national-scale mapping.
 
-Harmonic regression offers an elegant compromise. By decomposing time-series into sinusoidal components, we capture the essence of phenological cycles in a handful of interpretable features: how strongly vegetation oscillates (amplitude), when it peaks (phase), and how consistently it follows the pattern (residuals). This Fourier approach has proven effective in crop mapping and land cover classification, with recent advances demonstrating its potential for forest species mapping. Francini et al. (2024) successfully combined Sentinel-2 harmonic analysis with national forest inventory data to map tree species distributions, establishing that integrating satellite phenology metrics with ground observations represents a credible, state-of-the-art approach for operational forest monitoring.
+Harmonic regression offers an elegant compromise. By decomposing time-series into sinusoidal components, we capture the essence of phenological cycles in a handful of interpretable features: how strongly vegetation oscillates (amplitude), when it peaks (phase), and how consistently it follows the pattern (residuals). This Fourier approach has proven effective in crop mapping and land cover classification, with recent advances demonstrating its potential for forest species mapping. \citet{Francini2024} successfully combined Sentinel-2 harmonic analysis with national forest inventory data to map tree species distributions, establishing that integrating satellite phenology metrics with ground observations represents a credible, state-of-the-art approach for operational forest monitoring.
 
-Recent work has specifically demonstrated the power of phenology-based approaches for forest type classification. Li et al. (2023) achieved accurate evergreen-deciduous separation at 10\,m resolution across China using a phenology index based on seasonal NDVI differences, while Bolton et al. (2020) developed continental-scale land surface phenology algorithms combining Landsat-8 and Sentinel-2, demonstrating fine-scale vegetation phenology mapping with particular success in capturing deciduous forest seasonality. These studies establish that leveraging seasonal differences in vegetation indices provides a robust foundation for distinguishing forest leaf types at large scales.
+Recent work has specifically demonstrated the power of phenology-based approaches for forest type classification. \citet{Li2023} achieved accurate evergreen-deciduous separation at 10\,m resolution across China using a phenology index based on seasonal NDVI differences, though their approach requires complex multi-temporal compositing and gap-filling procedures that increase computational overhead. \citet{Bolton2020} developed continental-scale land surface phenology algorithms combining Landsat-8 and Sentinel-2 imagery, leveraging the 3-day repeat cycle of harmonized data to extract detailed phenological metrics. However, their approach focuses on comprehensive phenological parameter extraction rather than efficient binary classification, requiring substantial preprocessing and computational resources to handle the large combined data volumes. These studies establish that leveraging seasonal differences in vegetation indices provides a robust foundation for distinguishing forest leaf types at large scales, though computational efficiency remains a challenge for operational deployment.
 
 Our contribution demonstrates that just 14 carefully selected harmonic features can distinguish deciduous from evergreen forests as accurately as methods requiring orders of magnitude more computation or training data, while providing the annual updates that existing static products cannot deliver.
 
 \section{Data and Methods}
 
 \subsection{Study Area}
-We mapped metropolitan France across its full ecological gradient—from Atlantic coastal forests to Alpine timber lines, Mediterranean maquis to continental oak stands. The country's 11 eco-regions (Jarvis et al., 1983) provided our spatial framework, ensuring our model learned phenological patterns from every forest type (Figure \ref{fig:training_tiles}).
+We mapped metropolitan France across its full ecological gradient—from Atlantic coastal forests to Alpine timber lines, Mediterranean maquis to continental oak stands. The country's 11 eco-regions [GRECO regions - add proper citation] provided our spatial framework, ensuring our model learned phenological patterns from every forest type (Figure \ref{fig:training_tiles}).
 
 % Note: eco_region_map.png not available - using tile visualization instead
 \begin{figure}[H]
@@ -79,15 +80,21 @@ We mapped metropolitan France across its full ecological gradient—from Atlanti
 \end{figure}
 
 \subsection{Satellite Observations}
-We assembled monthly cloud-free mosaics from the Sentinel-2 archive (2017–2024), selecting images with less than 10\% cloud cover. Beyond the standard spectral bands (blue through shortwave infrared), we computed four vegetation indices known to capture phenological signals: NDVI for overall greenness, EVI for enhanced sensitivity in dense canopies (Huete et al., 2002), NBR for moisture content (Roy et al., 2006), and CRSWIR (Continuum Removal Short-Wave Infrared) for vegetation water stress detection.
+We assembled monthly cloud-free mosaics from the Sentinel-2 archive (2017–2024), selecting images with less than 10\% cloud cover. Beyond the standard spectral bands (blue through shortwave infrared), we computed four vegetation indices known to capture phenological signals: NDVI for overall greenness, EVI for enhanced sensitivity in dense canopies \citep{Huete2002}, NBR for moisture content \citep{Roy2006}, and CRSWIR (Continuum Removal Short-Wave Infrared) for vegetation water stress detection.
 
-The CRSWIR index applies continuum removal technique to SWIR bands, maximizing spectral contrast associated with absorption features by normalizing reflectance values relative to a convex hull envelope calculated from neighboring spectral bands (Dutrieux et al., 2021). This index strongly correlates with vegetation water content, with low CRSWIR values indicating high vegetation water content and increasing CRSWIR values signaling early physiological stress.
+The CRSWIR index applies continuum removal technique to SWIR bands, maximizing spectral contrast associated with absorption features by normalizing reflectance values relative to a convex hull envelope calculated from neighboring spectral bands \citep{Dutrieux2021}. This index strongly correlates with vegetation water content, with low CRSWIR values indicating high vegetation water content and increasing CRSWIR values signaling early physiological stress.
 
 \subsection{Building a Balanced Reference Dataset}
 
-Creating training data for 14 million pixels required careful orchestration of multiple sources while maintaining geographic and ecological balance.
+Creating training data for 14 million pixels required careful orchestration of multiple sources while maintaining geographic and ecological balance. We combined four complementary datasets:
 
-We assembled training data from multiple sources: high-quality in-situ polygons from PureForest inventory, RENECOFOR permanent plots, and IGN's LiDAR-validated stands, supplemented by BD Forêt V2 polygons after strict quality control (50\,m buffer from in-situ data, boundary shrinking to avoid edge effects).
+\textbf{PureForest} \citep{gaydon2024pureforestlargescaleaeriallidar}: Provides ground truth for monospecific forests with over 135,000 patches (50\,m × 50\,m) primarily from southern France. Labels were semi-automatically predicted and expert-verified, requiring no preprocessing.
+
+\textbf{RENECOFOR} \citep{ulrich:hal-03444393}: Part of ICP Forests, this dataset contains permanent monitoring plots (1992–present) with extensive tree measurements. We selected points from 2019–2020 within Sentinel-2 coverage, filtering trees above 15\,m height.
+
+\textbf{Tree Position Calibration}: Precise individual tree locations recorded in 2022 to help \citep{ONF} calibrate GPS positions using airborne LiDAR \citep{IGN_LiDARHD}. Dominant species were determined by counting, excluding dead or dying trees.
+
+\textbf{BD Forêt V2} \citep{IGN2024}: IGN's comprehensive forest inventory covering patches >5,000\,m² verified between 2005–2019. We applied a 100\,m negative buffer to account for potential edge changes and used it to fill regional gaps where ground measurements lacked coverage.
 
 Our sampling strategy partitioned France into 2.5\,km × 2.5\,km tiles, selecting those with minimum 10 reference pixels while maintaining 5\,km separation to reduce spatial autocorrelation. A weighted sampling approach balanced representation across eco-regions, with weights calculated as the ratio of effective forest area fraction to dataset fraction, ensuring Mediterranean and Alpine forests contributed proportionally despite smaller absolute coverage.
 
@@ -95,11 +102,17 @@ The final dataset of 14.1 million pixels achieved remarkable diversity: 15 gener
 
 \subsection{The Power of Harmonic Analysis}
 
-We transformed each pixel's annual cycle into harmonic components using Fourier analysis, following the established framework for extracting seasonal vegetation dynamics from satellite time-series (Jönsson \& Eklundh, 2002). For every vegetation index, we fit up to two harmonic waves:
+We transformed each pixel's annual cycle into harmonic components using Fourier analysis, following the established framework for extracting seasonal vegetation dynamics from satellite time-series \citep{JonssonEklundh2002}. For every vegetation index, we fit up to two harmonic waves:
 
 $$ f(t) = \sum_{i=1}^{2} \left[ A_i \cos(2\pi i t) + B_i \sin(2\pi i t) \right] + C $$
 
+where $t$ is normalized to [0,1] over the annual cycle.
+
 Cloud-contaminated observations receive lower weights based on Sentinel-2's cloud probability. The fitting process yields interpretable features: amplitude (seasonal strength), phase (timing encoded as cos/sin components), offset (baseline level), and residual variance (model consistency). This approach ensures that key seasonal differences between species—such as the timing of peak greenness and the magnitude of seasonal variation—are systematically quantified rather than derived ad hoc.
+
+The signal-to-noise ratio (SNR) and energy distribution are related through the harmonic decomposition. For a signal reconstructed from $n$ harmonics, the SNR in decibels is calculated as:
+$$SNR_{dB} = 10 \log_{10}\left(\frac{\sum_{i=1}^{n} E_i}{E_{residual}}\right)$$
+where $E_i$ represents the energy percentage of the $i$-th harmonic and $E_{residual}$ is the residual energy not captured by the harmonic model. Higher energy concentration in the first few harmonics indicates better signal reconstruction and higher SNR values. These metrics will guide our selection of the optimal number of harmonics, balancing signal capture against overfitting to noise.
 
 Circular encoding of phase prevents artificial splitting of temporally adjacent phenologies (e.g., December-January), ensuring Random Forest models respect seasonal continuity.
 
@@ -108,20 +121,20 @@ Circular encoding of phase prevents artificial splitting of temporally adjacent 
 From 32 possible harmonic features (4 indices × 8 metrics including circular phase encoding), recursive feature elimination with cross-validation identified the 14 most informative:
 
 \begin{itemize}
-    \item \textbf{NDVI}: First harmonic amplitude, phase (cos/sin), offset, and residual variance (5 features)
-    \item \textbf{NBR}: First and second harmonic amplitudes, first harmonic phase (cos), offset, and residual variance (5 features)
-    \item \textbf{CRSWIR}: First and second harmonic phase (cos), offset, and residual variance (4 features)
+    \item \textbf{NDVI}: First harmonic amplitude [importance: X.XX], phase (cos/sin) [importance: X.XX/X.XX], offset [importance: X.XX], and residual variance [importance: X.XX] (5 features)
+    \item \textbf{NBR}: First harmonic amplitude [importance: X.XX] and second harmonic amplitude [importance: X.XX], first harmonic phase (cos) [importance: X.XX], offset [importance: X.XX], and residual variance [importance: X.XX] (5 features)
+    \item \textbf{CRSWIR}: First harmonic phase (cos) [importance: X.XX] and second harmonic phase (cos) [importance: X.XX], offset [importance: X.XX], and residual variance [importance: X.XX] (4 features)
 \end{itemize}
 
 Note that some features from the complete 32-feature set (4 indices × 8 metrics) were eliminated during recursive feature selection, resulting in this optimized 14-feature subset.
 
 The inclusion of NBR's second harmonic amplitude proved critical—it captures the asymmetric green-up and senescence patterns characteristic of deciduous forests. Phase features encode peak timing as circular variables using cosine and sine components.
 
-Our Random Forest classifier uses 50 trees with regularization parameters (max\_depth=30, min\_samples\_split=30) optimized through HalvingGridSearchCV—a successive halving approach that efficiently explores hyperparameter space by progressively eliminating poorly performing parameter combinations using increasing fractions of the training data. We selected Random Forest as our classifier based on its proven effectiveness in remote sensing applications, particularly for forest mapping where it consistently delivers high accuracy while avoiding overfitting to high-dimensional data (Belgiu \& Drăguţ, 2016). Cross-validation employs eco-region balanced folds, ensuring each ecological gradient contributes proportionally to model training and preventing overfitting to dominant regions.
+Our Random Forest classifier uses 50 trees with regularization parameters (max\_depth=30, min\_samples\_split=30) optimized through HalvingGridSearchCV—a successive halving approach that efficiently explores hyperparameter space by progressively eliminating poorly performing parameter combinations using increasing fractions of the training data. We selected Random Forest as our classifier based on its proven effectiveness in remote sensing applications, particularly for forest mapping where it consistently delivers high accuracy while avoiding overfitting to high-dimensional data \citep{Belgiu2016}. Cross-validation employs eco-region balanced folds, ensuring each ecological gradient contributes proportionally to model training and preventing overfitting to dominant regions.
 
 \subsection{From Local Training to National Mapping}
 
-The true test of our approach came in scaling from 14 million training pixels to France's 2+ billion forest pixels. Our processing pipeline parallelizes beautifully: each 100×100\,km tile runs independently, with 1024×1024 pixel chunks processed simultaneously across 80 CPU cores.
+The true test of our approach came in scaling from 14 million training pixels to France's 2+ billion forest pixels. Our processing pipeline parallelizes beautifully: each 100×100\,km tile runs independently, with 1024×1024 pixel chunks processed simultaneously across 80 CPU cores [computational setup: specify cluster/HPC system used].
 
 The entire workflow—from raw Sentinel-2 imagery to final probability maps—completes in 48 minutes for harmonic feature extraction plus under an hour for Random Forest inference. This efficiency enables annual updates, tracking forest changes as they happen rather than waiting years for new reference data.
 
@@ -131,7 +144,7 @@ To ensure our map's reliability, we implemented two validation approaches. First
 
 \section{Results}
 
-\subsection{Finding the Goldilocks Zone: Why Two Harmonics?}
+\subsection{Optimal Harmonic Configuration: Why Two Harmonics?}
 
 The first challenge in harmonic analysis is choosing the right level of complexity. Too few harmonics miss important phenological details; too many chase noise rather than signal. Our systematic comparison across France revealed that two harmonics hit the sweet spot (Figure \ref{fig:harmonic_cmp}).
 
@@ -192,7 +205,7 @@ Based on these results, we selected the two-harmonic configuration for subsequen
 
 \subsection{The Surprising Importance of Timing}
 
-When the Random Forest ranked feature importance, a surprise emerged: after NBR's primary amplitude (capturing overall seasonal variation), the second-most important feature was NDVI's phase sine component. This mathematical encoding of peak greenness timing proved more discriminative than many amplitude measures, highlighting that deciduous and evergreen forests differ not just in how much they change, but precisely when they reach maximum vigor.
+When the Random Forest ranked feature importance, a surprise emerged: after NBR's primary amplitude (capturing overall seasonal variation) [importance: X.XX], the second-most important feature was NDVI's phase sine component [importance: X.XX]. This mathematical encoding of peak greenness timing proved more discriminative than many amplitude measures, highlighting that deciduous and evergreen forests differ not just in how much they change, but precisely when they reach maximum vigor.
 
 The inclusion of NBR's second harmonic amplitude also proved critical. This feature specifically captures the asymmetry between spring and autumn transitions—a key signature distinguishing deciduous forests with their explosive spring growth and lingering autumn colors from the steady-state evergreens.
 
@@ -206,14 +219,14 @@ Our model achieved 90.4\% overall accuracy across France, with macro-averaged F1
 \begin{tabular}{lccccc}
 \hline
 \textbf{Eco-region} & \textbf{Accuracy} & \textbf{F1\_decid} & \textbf{F1\_everg} & \textbf{F1\_macro} & \textbf{Samples} \\ \hline
-Greater S-Continental E & 0.95 \(\pm\) 0.01 & 0.97 & 0.65 & 0.81 & 2.87\,M \\
-Oceanic SW & 0.93 \(\pm\) 0.01 & 0.95 & 0.78 & 0.87 & 2.66\,M \\
-Semi-Oceanic N Centre & 0.94 \(\pm\) 0.01 & 0.96 & 0.75 & 0.86 & 2.46\,M \\
+Greater Semi-Continental East & 0.95 \(\pm\) 0.01 & 0.97 & 0.65 & 0.81 & 2.87\,M \\
+Oceanic Southwest & 0.93 \(\pm\) 0.01 & 0.95 & 0.78 & 0.87 & 2.66\,M \\
+Semi-Oceanic North Centre & 0.94 \(\pm\) 0.01 & 0.96 & 0.75 & 0.86 & 2.46\,M \\
 Central Massif & 0.90 \(\pm\) 0.02 & 0.92 & 0.86 & 0.89 & 1.93\,M \\
 Mediterranean & 0.81 \(\pm\) 0.06 & 0.74 & 0.84 & 0.79 & 1.46\,M \\
 Alps & 0.87 \(\pm\) 0.04 & 0.83 & 0.88 & 0.85 & 0.72\,M \\
 Pyrenees & 0.93 \(\pm\) 0.03 & 0.95 & 0.60 & 0.78 & 0.56\,M \\
-Gr. Crystalline W & 0.87 \(\pm\) 0.04 & 0.91 & 0.72 & 0.82 & 0.49\,M \\
+Greater Crystalline West & 0.87 \(\pm\) 0.04 & 0.91 & 0.72 & 0.82 & 0.49\,M \\
 Vosges & 0.88 \(\pm\) 0.04 & 0.87 & 0.81 & 0.84 & 0.40\,M \\
 Corsica & 0.65 \(\pm\) 0.08 & 0.45 & 0.66 & 0.55 & 0.35\,M \\
 Jura & 0.88 \(\pm\) 0.05 & 0.92 & 0.64 & 0.78 & 0.20\,M \\ \hline
@@ -257,36 +270,50 @@ Comparison with BD Forêt V2 and Copernicus DLT revealed overall agreements of 7
 
 The spatial patterns of disagreement are particularly revealing. Copernicus DLT, designed to distinguish leaf shape rather than phenology, systematically misclassifies evergreen oaks and other broadleaf evergreens. BD Forêt V2, based on aerial photography from 2005–2019, misses recent disturbances and forest management changes. Our annual updates capture these dynamics, essential for modern forest monitoring.
 
+\subsection{Qualitative Comparison at Local Scales}
+
+To provide a more granular understanding of our model's performance, Figure \ref{fig:comparison_sites} offers a qualitative comparison across three distinct French ecosystems: Les Landes, Corsica, and Fontainebleau. These sites highlight the strengths and nuances of our phenology-based approach compared to the BD Forêt v2 and Copernicus DLT products. It is important to note that the background satellite imagery is high-resolution (Maxar, \textasciitilde1\,m), while our map is generated from Sentinel-2 data at 10\,m resolution, which explains the pixelated appearance of our classification, particularly visible in the Les Landes panel.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/Comparison_our_dlt_bdforet.png}
+    \caption{Qualitative comparison at three sites. From left to right: high-resolution satellite imagery, BD Forêt v2, Copernicus DLT, and our deciduous-evergreen classification. Our map demonstrates improved accuracy and relevance by leveraging up-to-date phenological signals.}
+    \label{fig:comparison_sites}
+\end{figure}
+
+In the maritime pine plantations of \textbf{Les Landes}, the small scale reveals the challenges of mapping with static data. While BD Forêt accurately identifies a deciduous parcel, its boundaries are outdated and no longer match the current forest edge visible in the satellite view. Copernicus DLT incorrectly classifies a large area as deciduous. Our model, while showing the characteristic pixelation of a 10\,m product, provides the classification that most closely aligns with the current ground reality.
+
+The \textbf{Corsica} example, located in the mountainous Castagniccia region, illustrates the critical limitation of classifying by leaf type instead of phenology. The region is a complex mosaic of deciduous chestnut groves and evergreen broadleaf species (e.g., Holm Oak, Olive trees) typical of the maquis shrubland. BD Forêt is precise but outdated. Copernicus DLT classifies most of the area as broadleaf, failing to distinguish between deciduous and evergreen habits. Our map successfully separates the two, correctly identifying the phenological behaviour that DLT's leaf-type schema misses.
+
+Finally, in the managed forests of \textbf{Fontainebleau}, all three products show strong agreement. The clear boundaries between deciduous oak stands and coniferous pine plantations create sharp, stable delineations. In this environment, the ambiguity between leaf type and phenology is minimal (broadleaf are mostly deciduous, conifers are evergreen), leading to a high degree of concordance between the maps.
+
 \section{Discussion}
 
-Our harmonic approach succeeds by exploiting seasonal patterns rather than suppressing them. Where change detection methods treat phenology as noise, we use it as signal for classification. This enables efficient, interpretable mapping at national scales.
+Our harmonic approach succeeds by exploiting seasonal patterns rather than suppressing them. Two harmonics proved optimal through systematic analysis: the first captures the primary growth cycle, while the second adds asymmetry characteristic of deciduous forests—rapid spring growth followed by gradual autumn senescence. Higher harmonics primarily fit observation artifacts rather than biological patterns, aligning with \citet{Wilson2018} who demonstrated that harmonic features improve forest classification accuracy by 10-20\%.
 
-The method's limitations reflect forest complexity. Mediterranean drought-deciduous species blur phenological boundaries. Alpine shadows create false signals in narrow valleys. Corsica's maquis represents a distinct phenological regime challenging our temperate-trained model. Future improvements might incorporate Sentinel-1 radar or bioclimatic variables.
+Phase timing emerged as a key discriminative feature. Different species reach peak greenness at distinct times, encoding species-specific responses to temperature and photoperiod that provide temporal signatures as distinctive as spectral ones.
 
-Practical validation comes from operational deployment: integrating phenology masks into bark beetle monitoring reduced false alarms by 40\% in Austrian pilot studies, demonstrating the value of phenological information for forest surveillance.
+The method's limitations reflect forest complexity. Mediterranean drought-deciduous species blur phenological boundaries. Alpine shadows create false signals in narrow valleys. Corsica's maquis represents a distinct phenological regime challenging our temperate-trained model. Edge effects at forest boundaries and the 10\,m minimum mapping unit may miss small forest patches or narrow riparian corridors. Temporal compositing over monthly intervals can mask rapid phenological transitions during extreme weather events.
 
-Two harmonics proved optimal through systematic analysis. The first harmonic captures the primary growth cycle. The second harmonic adds asymmetry characteristic of deciduous forests: rapid spring growth followed by gradual autumn senescence. Higher harmonics primarily fit observation artifacts rather than biological patterns. This finding aligns with Wilson et al. (2018), who demonstrated that harmonic regression coefficients from multi-year spectral time series significantly improve forest classification accuracy by 10-20% compared to seasonal composites, confirming that harmonic temporal features effectively capture phenological signals essential for forest attribute modeling.
+Our deciduous-evergreen maps could enhance existing forest monitoring systems. Change detection algorithms like BEAST \citep{Zhao2019} and CCDC \citep{Zhu2014} currently struggle to separate genuine disturbances from seasonal variations. By providing phenological context, our maps could help these algorithms focus on anomalous changes while accounting for expected seasonal patterns, potentially reducing false positives in disturbance alerts.
 
-Phase timing emerged as a key discriminative feature, encoding species-specific responses to temperature and photoperiod. Different species reach peak greenness at distinct times, providing temporal signatures as distinctive as spectral ones.
+Future improvements might incorporate Sentinel-1 radar for cloud-persistent observations, bioclimatic variables to account for elevation gradients, or higher temporal resolution composites during critical phenological periods. Integration with deep learning approaches could exploit spatial context while maintaining the interpretability of harmonic features.
 
-\section{Future Directions}
-
-Our Random Forest demonstrates that 14 well-chosen harmonic features achieve 90\% accuracy. Future improvements could exploit spatial context through deep learning approaches using our probability maps as training data. The combination of harmonic feature engineering with spatial pattern recognition offers potential for further accuracy gains while maintaining interpretability.
 
 \section{Conclusion}
 
-By transforming Sentinel-2 time-series into harmonic features, we've created France's first operational 10\,m deciduous-evergreen map. The method processes 14 features per pixel through a 50-tree Random Forest, mapping the nation in under an hour.
+We created France's first operational 10\,m deciduous-evergreen map by transforming Sentinel-2 time-series into 14 harmonic features processed through Random Forest classification. The approach maps the entire country in under an hour—fast enough for annual updates that track forest responses to disturbance and climate change.
 
-This efficiency enables annual updates tracking forest response to climate change, disturbance, and management. Our approach provides a scalable framework for European forest monitoring, combining interpretable harmonic analysis with efficient machine learning.
+Our method fills a critical gap between static inventories and leaf-type classifications. Where BD Forêt V2 remains frozen in time and Copernicus DLT conflates evergreen oaks with deciduous beeches, we provide dynamic phenological discrimination essential for modern forest monitoring.
 
-The phenological perspective enhances forest monitoring by establishing baseline patterns against which anomalies can be detected. This foundational capability supports both operational forest management and scientific understanding of forest dynamics under changing environmental conditions.
+The harmonic framework offers a practical path forward: computationally efficient yet scientifically rigorous, interpretable yet accurate. As European forests face unprecedented changes, this capability to map phenological patterns annually becomes not just useful but necessary for informed management and conservation.
 
 \section*{Acknowledgments}
 We thank ONF for access to forest inventory data, IGN for the BD Forêt reference layer, CNES for Sentinel-2 processing support, and GENCI for computational resources on the Jean Zay supercomputer. Special recognition goes to the field teams whose decades of forest observations made our training data possible.
 
 \section*{Data and Code Availability}
-The 2023 10\,m deciduous-evergreen map of France is freely available at \url{https://doi.org/ZENODO_DOI}. 
-Processing code, training notebooks, and harmonic feature extraction scripts are at \url{https://github.com/GITHUB_REPO}.
+The 2023 10\,m deciduous-evergreen map of France is freely available at \url{https://doi.org/[ADD_ZENODO_DOI]}. 
+Processing code, training notebooks, and harmonic feature extraction scripts are at \url{https://github.com/[ADD_GITHUB_REPO]}.
 We encourage adaptation of our methods to other regions and welcome collaboration on European expansion.
 
 \bibliographystyle{Frontiers-Harvard}
