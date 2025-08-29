@@ -470,7 +470,7 @@ def main():
         else:
             logging.error(f"Features file not found: {args.features_path}")
             sys.exit(1)
-    
+
     # Get the CRS of the feature raster
     with rasterio.open(features_file) as src:
         raster_crs = src.crs
@@ -600,32 +600,8 @@ def main():
                     })
                     continue
                 
-                # Check if the tile intersects with any of the actual TIF files
-                # Find all TIF files in the features directory
-                features_dir = Path(args.features_path).parent if not os.path.isdir(args.features_path) else Path(args.features_path)
-                tif_files = list(features_dir.glob("*.tif"))
-                
-                intersects_any_tif = False
-                for tif_file in tif_files:
-                    with rasterio.open(tif_file) as tif_src:
-                        tif_bbox = box(tif_src.bounds.left, tif_src.bounds.bottom, tif_src.bounds.right, tif_src.bounds.top)
-                        if tif_bbox.intersects(tile_geom_in_raster_crs):
-                            intersects_any_tif = True
-                            logging.debug(f"Tile {tile_id} intersects with {tif_file.name}")
-                            break
-                
-                if not intersects_any_tif:
-                    logging.warning(f"Tile {tile_id} does not intersect with any TIF files. Skipping.")
-                    skipped_tiles += 1
-                    skipped_tiles_info[tile_id].append({
-                        "reason": "Tile does not intersect with any TIF files",
-                        "tile_bounds": tile_geometry.bounds,
-                        "reprojected_bounds": tile_geom_in_raster_crs.bounds,
-                        "original_crs": str(tiles_gdf.crs),
-                        "target_crs": str(target_crs),
-                        "tif_files": [str(f.name) for f in tif_files]
-                    })
-                    continue
+                # Intersect check is unnecessary here because src_path is either the VRT (global mosaic)
+                # or already the intersecting TIF selected above.
                 
                 # Get the bounding box of the geometry in the raster's CRS
                 bbox = [tile_geom_in_raster_crs]

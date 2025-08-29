@@ -32,6 +32,8 @@ $^{2}$ Laboratory Y, Institute Y, Department Y, City Y, Country Y}
 \begin{abstract}
 Effective forest monitoring requires distinguishing normal seasonal changes from disturbance events. Europe lacks a fundamental phenological layer: while Copernicus DLT classifies broadleaf versus conifer at 10\,m resolution, it cannot distinguish evergreen oak from deciduous beech. France's BD Forêt V2 provides phenological classes but remains static (2005–2019 compilation). We present France's first annual 10\,m deciduous-evergreen map using harmonic analysis of Sentinel-2 time series. Our method compresses each pixel's annual cycle into 14 harmonic features capturing seasonal amplitude, timing, and consistency. A Random Forest classifier trained on 14 million reference pixels with eco-region balanced cross-validation achieves high accuracy, producing national maps in under an hour and enabling annual updates that existing products cannot provide.
 
+In addition, we benchmark a 64-band foundation-model embedding computed from satellite imagery (AlphaEarth; \citealp{AlphaEarth2025}) as a generic representation, comparing its performance against our 14 interpretable harmonic features under identical eco-region folds and sampling weights. This neutral comparison clarifies trade-offs between generic embeddings and targeted, physics-informed features for national phenology mapping.
+
 \keyFont{\section{Keywords:} deciduous-evergreen classification, harmonic analysis, Sentinel-2, Random Forest, France}
 \end{abstract}
 
@@ -132,6 +134,22 @@ The inclusion of NBR's second harmonic amplitude proved critical—it captures t
 
 Our Random Forest classifier uses 50 trees with regularization parameters (max\_depth=30, min\_samples\_split=30) optimized through HalvingGridSearchCV—a successive halving approach that efficiently explores hyperparameter space by progressively eliminating poorly performing parameter combinations using increasing fractions of the training data. We selected Random Forest as our classifier based on its proven effectiveness in remote sensing applications, particularly for forest mapping where it consistently delivers high accuracy while avoiding overfitting to high-dimensional data \citep{Belgiu2016}. Cross-validation employs eco-region balanced folds, ensuring each ecological gradient contributes proportionally to model training and preventing overfitting to dominant regions.
 
+\subsection{Foundation Model Embeddings (AlphaEarth)}
+
+We additionally evaluate a foundation-model representation derived from satellite imagery: the Google/DeepMind AlphaEarth annual embedding (64-band) delivered via Google Earth Engine (dataset: `GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL`, year 2023; \citealp{AlphaEarth2025}). Each 2.5\,km tile is exported at 10\,m resolution directly in \texttt{EPSG:2154} with server-side clipping, then mosaicked locally to align with the training grid. The resulting rasters contain bands `A00..A63`.
+
+To ensure a fair comparison with harmonic features, we train two Random Forest variants on the embeddings:
+\begin{itemize}
+    \item \textbf{Emb-64}: all 64 embedding bands
+    \item \textbf{Emb-Top14}: top-$K$ embedding bands with $K{=}14$, selected via RFECV using the same settings as for the harmonic baseline (feature selection performed within training folds only to avoid leakage)
+\end{itemize}
+
+All other settings (number of trees, regularization, class weights) mirror the harmonic baseline. Sample weights and eco-region identifiers are reused by joining on the unique pixel keys (`tile\_id`, `row`, `col`).
+
+\subsection{Comparative Benchmarking Protocol}
+
+We reuse \emph{identical} eco-region–balanced cross-validation folds and per-sample weights across all three models—Harmonic-14, Emb-64, and Emb-Top14—to isolate the effect of the feature representation. We report overall accuracy (OA), macro-averaged F1, and weighted F1 as means (± standard deviation) across folds. Unless otherwise specified, we keep the same national inference pipeline (tiling, chunking, and post-processing) for direct runtime and operability comparisons. Implementation references: `src/gee/download_embeddings.py`, `src/sampling/dataset_preparation_embedding.py`, and `src/training/train_rf_embeddings.py`.
+
 \subsection{From Local Training to National Mapping}
 
 The true test of our approach came in scaling from 14 million training pixels to France's 2+ billion forest pixels. Our processing pipeline parallelizes beautifully: each 100×100\,km tile runs independently, with 1024×1024 pixel chunks processed simultaneously across 80 CPU cores [computational setup: specify cluster/HPC system used].
@@ -143,6 +161,52 @@ The entire workflow—from raw Sentinel-2 imagery to final probability maps—co
 To ensure our map's reliability, we implemented two validation approaches. First, spatial cross-validation using 2.5\,km tiles with at least 1\,km separation between training and test sets prevents overfitting to local patterns. Second, we compared our results against existing products (BD Forêt V2 and Copernicus DLT) using 10×10\,km blocks, computing agreement metrics only for pixels classified as forest in at least one product. This block-wise assessment reveals regional performance patterns and highlights where our harmonic approach excels—particularly in mixed deciduous-evergreen stands where spectral confusion is highest.
 
 \section{Results}
+
+\subsection{Ablation — Feature Sets (Harmonic vs Embedding)}
+
+We compare three feature sets under identical eco-region folds and weights: (i) the interpretable harmonic baseline with 14 selected features (Harmonic-14), (ii) the full AlphaEarth embedding (Emb-64), and (iii) a 14-band subset of the embedding selected via RFECV (Emb-Top14). This design tests whether generic embeddings can match or surpass the accuracy and efficiency of targeted, physics-informed features in national phenology mapping.
+
+\begin{table}[H]
+    \centering
+    \begin{tabular}{lccc}
+        \hline
+        \textbf{Model} & \textbf{OA} & \textbf{F1\_macro} & \textbf{F1\_weighted} \\ \hline
+        Harmonic-14 & 0.904 (\(\pm\) 0.007) & 0.874 (\(\pm\) 0.011) & 0.905 (\(\pm\) 0.006) \\
+        Emb-64 & 0.936 (\(\pm\) 0.008) & 0.917 (\(\pm\) 0.005) & 0.937 (\(\pm\) 0.007) \\
+        Emb-Top14 & [to fill] & [to fill] & [to fill] \\ \hline
+    \end{tabular}
+    \caption{National performance comparison under identical eco-region folds and weights. Values are mean (± sd) across CV folds.}
+    \label{tab:national_ablation}
+\end{table}
+
+To examine geographic robustness, we mirror the eco-region breakdown of Table~\ref{tab:eco-region} for the embedding models:
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lccc}
+\hline
+\textbf{Eco-region} & \textbf{Acc (Emb-64)} & \textbf{Acc (Emb-Top14)} & \textbf{Samples} \\ \hline
+Greater Semi-Continental East & 0.967 & [to fill] & 2.87\,M \\
+Oceanic Southwest & 0.959 & [to fill] & 2.66\,M \\
+Semi-Oceanic North Centre & 0.966 & [to fill] & 2.46\,M \\
+Central Massif & 0.935 & [to fill] & 1.93\,M \\
+Mediterranean & 0.836 & [to fill] & 1.46\,M \\
+Alps & 0.906 & [to fill] & 0.72\,M \\
+Pyrenees & 0.965 & [to fill] & 0.56\,M \\
+Greater Crystalline West & 0.946 & [to fill] & 0.49\,M \\
+Vosges & 0.908 & [to fill] & 0.40\,M \\
+Corsica & 0.694 & [to fill] & 0.35\,M \\
+Jura & 0.936 & [to fill] & 0.20\,M \\ \hline
+\end{tabular}
+\caption{Eco-region accuracies for AlphaEarth embedding models (Emb-64, Emb-Top14), matching regions and sample counts in Table~\ref{tab:eco-region}.}
+\label{tab:eco-region-emb}
+\end{table}
+
+% Swap-in sentences depending on outcome (keep only one in final):
+% If embeddings outperform harmonics nationally or in key regions:
+% \textit{Preliminary results indicate that AlphaEarth embeddings outperform the harmonic baseline at national scale and in challenging eco-regions (e.g., Mediterranean, Corsica), suggesting that generic representations can capture phenological separability effectively without hand-crafted features.}
+% If harmonics match or beat embeddings:
+% \textit{Preliminary results show that targeted harmonic features match or exceed the performance of generic embeddings while remaining more interpretable and computationally efficient, reinforcing the value of physics-informed temporal descriptors for phenology mapping.}
 
 \subsection{Optimal Harmonic Configuration: Why Two Harmonics?}
 
