@@ -30,6 +30,7 @@ python src/training/recursive_feature_selection_embeddings.py \
   --output_dir "$OUT_DIR" \
   --min_features 14 \
   --step_schedule 10,10,10,10,10 \
+  --save_topk 14,24,34,44,54,64 \
   --n_splits 5
 
 echo "### Done: selection artifacts saved under $OUT_DIR ###"

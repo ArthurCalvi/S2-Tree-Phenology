@@ -151,6 +151,7 @@ def main():
     ap.add_argument('--step_schedule', default='6,5,4,3,2,1', help='Comma-separated elimination steps')
     ap.add_argument('--n_splits', type=int, default=5)
     ap.add_argument('--sample_n', type=int, default=None)
+    ap.add_argument('--save_topk', type=str, default='14', help='Comma-separated K values to save (features + metrics) irrespective of RFE stages')
     args = ap.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
@@ -169,6 +170,12 @@ def main():
     current = features.copy()
     curve = []
     best = {'features': current, 'score': -1.0, 'summary': None}
+    # Parse K values to save
+    try:
+        save_topk = sorted({int(k.strip()) for k in args.save_topk.split(',') if k.strip()})
+    except Exception:
+        save_topk = [14]
+    saved_k_done = set()
 
     for i, step in enumerate(steps):
         imp, score = cv_importance_and_score(df, current, args.n_splits)
@@ -178,6 +185,40 @@ def main():
             best['score'] = score['f1_macro_mean']
             best['features'] = current.copy()
             best['summary'] = score
+
+        # Save top-K artifacts for requested K values when possible
+        for K in save_topk:
+            if K <= len(current) and K not in saved_k_done:
+                topk_feats = list(imp.sort_values(ascending=False).head(K).index)
+                # Compute overall metrics for this K
+                _imp_k, score_k = cv_importance_and_score(df, topk_feats, args.n_splits)
+                eco_k = eco_region_metrics(df, topk_feats, args.n_splits)
+                ts = datetime.utcnow().isoformat() + 'Z'
+                # Save features list
+                with open(Path(args.output_dir) / f'features_embeddings_topk_k{K}.txt', 'w') as f:
+                    f.write("\n".join(topk_feats))
+                # Save metrics JSON
+                meta = {
+                    'timestamp': ts,
+                    'dataset_path': args.dataset_path,
+                    'n_splits': args.n_splits,
+                    'rf_params': {
+                        'n_estimators': 50,
+                        'max_depth': 30,
+                        'min_samples_split': 30,
+                        'min_samples_leaf': 15,
+                        'class_weight': 'balanced',
+                        'random_state': 42
+                    },
+                    'k': K,
+                    **score_k
+                }
+                with open(Path(args.output_dir) / f'metrics_embeddings_topk_k{K}.json', 'w') as f:
+                    json.dump(meta, f, indent=2)
+                # Save eco metrics CSV
+                if not eco_k.empty:
+                    eco_k.to_csv(Path(args.output_dir) / f'eco_metrics_embeddings_topk_k{K}.csv', index=False)
+                saved_k_done.add(K)
 
         if len(current) <= args.min_features:
             logging.info("Reached min_features; stopping elimination")

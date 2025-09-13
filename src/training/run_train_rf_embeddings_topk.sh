@@ -24,9 +24,14 @@ cd "$WORK_DIR"
 
 # Use selected features from prior selection job; fall back to RF importance if missing
 FEATURES_DIR="$RESULTS_DIR/feature_selection_embeddings"
+FEATURES_FILE_TOPK="$FEATURES_DIR/features_embeddings_topk_k${K}.txt"
 FEATURES_FILE="$FEATURES_DIR/features_embeddings_selected.txt"
 K=14
-if [ -f "$FEATURES_FILE" ]; then
+if [ -f "$FEATURES_FILE_TOPK" ]; then
+  TMP_LIST="$OUT_DIR/features_embeddings_topk_k${K}.list"
+  cp "$FEATURES_FILE_TOPK" "$TMP_LIST"
+  echo "Using precomputed top-$K features from $FEATURES_FILE_TOPK -> $TMP_LIST"
+elif [ -f "$FEATURES_FILE" ]; then
   TMP_LIST="$OUT_DIR/features_embeddings_topk_k${K}.list"
   head -n $K "$FEATURES_FILE" > "$TMP_LIST"
   echo "Using selected features from $FEATURES_FILE (top-$K) -> $TMP_LIST"
