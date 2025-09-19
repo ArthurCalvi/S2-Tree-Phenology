@@ -19,6 +19,7 @@ WORK_DIR="$WORK/S2-Tree-Phenology"
 RESULTS_DIR="$WORK_DIR/results"
 DATASET_PATH="$RESULTS_DIR/datasets/training_datasets_pixels_embedding.parquet"
 OUT_DIR="$RESULTS_DIR/final_model"
+K=14
 mkdir -p "$OUT_DIR"
 cd "$WORK_DIR"
 
@@ -26,28 +27,35 @@ cd "$WORK_DIR"
 FEATURES_DIR="$RESULTS_DIR/feature_selection_embeddings"
 FEATURES_FILE_TOPK="$FEATURES_DIR/features_embeddings_topk_k${K}.txt"
 FEATURES_FILE="$FEATURES_DIR/features_embeddings_selected.txt"
-K=14
+
+FEATURES_ARGS=()
 if [ -f "$FEATURES_FILE_TOPK" ]; then
   TMP_LIST="$OUT_DIR/features_embeddings_topk_k${K}.list"
   cp "$FEATURES_FILE_TOPK" "$TMP_LIST"
   echo "Using precomputed top-$K features from $FEATURES_FILE_TOPK -> $TMP_LIST"
+  FEATURES_ARGS+=(--features_file "$TMP_LIST")
 elif [ -f "$FEATURES_FILE" ]; then
   TMP_LIST="$OUT_DIR/features_embeddings_topk_k${K}.list"
   head -n $K "$FEATURES_FILE" > "$TMP_LIST"
   echo "Using selected features from $FEATURES_FILE (top-$K) -> $TMP_LIST"
-  python src/training/train_rf_embeddings.py \
-    --dataset_path "$DATASET_PATH" \
-    --config topk \
-    --k $K \
-    --features_file "$TMP_LIST" \
-    --output_dir "$OUT_DIR"
+  FEATURES_ARGS+=(--features_file "$TMP_LIST")
 else
   echo "Selected features file not found at $FEATURES_FILE; falling back to RF importance top-$K"
-  python src/training/train_rf_embeddings.py \
-    --dataset_path "$DATASET_PATH" \
-    --config topk \
-    --k $K \
-    --output_dir "$OUT_DIR"
+  FEATURES_ARGS=()
 fi
+
+CMD=(
+  python src/training/train_rf_embeddings.py
+  --dataset_path "$DATASET_PATH"
+  --config topk
+  --k "$K"
+  --output_dir "$OUT_DIR"
+)
+
+if [ ${#FEATURES_ARGS[@]} -gt 0 ]; then
+  CMD+=("${FEATURES_ARGS[@]}")
+fi
+
+"${CMD[@]}"
 
 echo "Done: features_*, metrics_*, eco_metrics_* saved under $OUT_DIR"
