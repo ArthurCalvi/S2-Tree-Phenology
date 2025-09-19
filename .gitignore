@@ -38,6 +38,7 @@ wheels/
 *.log
 *.txt
 *.md
+!/README.md
 *.html
 *.css
 *.js
@@ -103,3 +104,6 @@ results/*
 .venv
 env/
 venv/ 
+ 
+# Allow repository-level documentation
+!/README.md

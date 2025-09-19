@@ -1,0 +1,320 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Supplementary Materials - Frontiers Format
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\documentclass[utf8]{frontiers_suppmat}
+\usepackage{url,hyperref,lineno,microtype,subcaption}
+\usepackage{natbib}
+\usepackage[onehalfspacing]{setspace}
+\usepackage{float}
+\usepackage{multirow}
+\usepackage{graphicx}
+
+\def\keyFont{\fontsize{8}{11}\helveticabold}
+
+\begin{document}
+\onecolumn
+\firstpage{1}
+
+\title{Supplementary Materials:\\France-wide 10\,m Deciduous–Evergreen Mapping: AlphaEarth Embeddings vs Harmonics}
+
+\maketitle
+
+\section{S0. Overview and Linkage to Main Text}
+
+This supplement complements the methods and results in the main manuscript (article\_v3.tex). Cross-references indicate where expanded details live:
+
+- S1–S2 expand Section “Methods” on Harmonic-14 design and justify the two-harmonic choice referenced in the main text (see Methods: Harmonic-14).
+- S3 provides additional details for the Embedding–Harmonic similarity analysis discussed in the main text (Embedding–Harmonic Similarity Analysis).
+- S4 documents eco-region folds, sampling, and weighting referenced in Methods (Cross-validation) and used throughout evaluation.
+- S5 consolidates implementation specifics for feature extraction, models, and compute requirements referenced in Methods (Forest Mask/Implementation).
+- S6 lists extended validation metrics complementing headline accuracies in Results.
+- S7 reports data/code availability; S8 gathers background citations for geospatial foundation models.
+- S9 contains product-comparison maps and eco-region tables referred to by “Comparison with Existing Products”.
+
+\section{S1. Recursive Feature Elimination with Cross-Validation}
+
+\subsection{Methodology}
+We employed Recursive Feature Elimination with Cross-Validation (RFECV) to identify optimal feature subsets for both harmonic and embedding approaches:
+
+\begin{enumerate}
+    \item \textbf{Harmonic features}: Started with 32 features from two-harmonic Fourier decomposition of NDVI, NBR, CRSWIR, and EVI indices
+    \item \textbf{Cross-validation}: Eco-region stratified 5-fold CV maintaining regional representation
+    \item \textbf{Optimization}: Iteratively removed features with lowest Random Forest importance scores
+    \item \textbf{Selection}: Identified 14 features as optimal balance between performance and computational efficiency
+\end{enumerate}
+
+\subsection{Selected Features}
+\textbf{Harmonic-14 features:}
+\begin{itemize}
+    \item NDVI: amplitude\_h1, phase\_cos\_h1, phase\_sin\_h1, offset
+    \item NBR: amplitude\_h1, amplitude\_h2, phase\_cos\_h1, offset
+    \item CRSWIR: amplitude\_h1, phase\_sin\_h1, offset, var\_residual
+    \item EVI: amplitude\_h1, offset
+\end{itemize}
+
+\textbf{Emb-14 features:} Selected via RFECV from the 64 embedding bands. The definitive list used in training and similarity analysis is stored with the artifacts: \texttt{results/feature\_selection\_embeddings/features\_embeddings\_topk\_k14.txt} (on Jean Zay: \texttt{$WORK/S2-Tree-Phenology/results/feature\_selection\_embeddings/features\_embeddings\_topk\_k14.txt}).
+
+Performance plateaued beyond 14 features with marginal gains (<0.3 pp) not justifying 56\% additional computational cost.
+
+\section{S2. Optimal Harmonic Configuration}
+
+\subsection{Why Two Harmonics?}
+Selecting the appropriate number of harmonics balances phenological signal capture against noise overfitting. Our systematic analysis across 14.1M French forest pixels revealed that two harmonics optimally represents forest phenology (Figure S\ref{fig:harmonic_reconstruction}). The formal decomposition used in the main study is given in Methods (Harmonic feature construction).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/harmonic_comparison.png}
+    \caption{\textbf{Figure S1.} Harmonic reconstruction of NDVI time series for a deciduous pixel. One harmonic captures basic seasonality but forces unrealistic symmetry. Two harmonics reveal the characteristic asymmetric pattern of deciduous forests (rapid spring green-up, gradual autumn senescence). Three harmonics begin fitting atmospheric noise and registration artifacts rather than genuine phenological patterns. Parameters shown: $M_n$ = amplitude for harmonic $n$, $\varphi_n$ = phase, $C$ = offset.}
+    \label{fig:harmonic_reconstruction}
+\end{figure}
+
+A single harmonic forces symmetric spring and autumn transitions—biologically unrealistic for deciduous species which typically show rapid spring flush followed by gradual decline. The second harmonic enables asymmetric representation matching observed phenology. The third harmonic provides diminishing returns, primarily fitting noise rather than signal.
+
+\subsection{Performance Metrics by Configuration}
+
+Table S\ref{tab:harmonic_metrics} quantifies performance differences across configurations. Deciduous forests show higher signal-to-noise ratios (SNR) and concentrate more energy in the first harmonic (91.1\% vs 76.1\% for evergreen), reflecting their pronounced seasonality. Evergreen forests require more energy in higher harmonics to capture subtle variations.
+
+\begin{table}[H]
+    \centering
+    \caption{\textbf{Table S1.} Performance metrics for harmonic configurations by phenology type}
+    \begin{tabular}{llccccc}
+        \hline
+        \textbf{Config.} & \textbf{Phenology} & \textbf{SNR$_{dB}$} & \textbf{IQR} & \textbf{E$_1$ (\%)} & \textbf{E$_2$ (\%)} & \textbf{E$_3$ (\%)} \\
+        \hline
+        \multirow{2}{*}{1 Harmonic}
+            & Deciduous & 8.74 & 5.84 & 100.0 & -- & -- \\
+            & Evergreen & 1.30 & 8.77 & 100.0 & -- & -- \\
+        \hline
+        \multirow{2}{*}{2 Harmonics}
+            & Deciduous & 10.23 & 5.94 & 91.1 & 8.9 & -- \\
+            & Evergreen & 4.20 & 9.52 & 76.1 & 23.9 & -- \\
+        \hline
+        \multirow{2}{*}{3 Harmonics}
+            & Deciduous & 13.34 & 8.56 & 69.5 & 15.7 & 14.8 \\
+            & Evergreen & 6.06 & 10.77 & 61.6 & 25.3 & 13.1 \\
+        \hline
+    \end{tabular}
+    \label{tab:harmonic_metrics}
+    \vspace{2mm}
+    \small{SNR: Signal-to-noise ratio (median); IQR: Interquartile range; E$_n$: Energy percentage in harmonic $n$}
+\end{table}
+
+While three harmonics show higher median SNR, the increased variability (IQR) and energy redistribution indicates overfitting. In mountainous regions, the third harmonic primarily captures topographic and atmospheric artifacts rather than phenology.
+
+\section{S3. Embedding–Harmonic Alignment Details}
+
+The main text reports linear alignment between embedding bands and harmonic descriptors. Here we provide configuration details to support reproducibility:
+
+- Ridge regression with standardized predictors; alpha selected via nested tile-stratified CV (grid: $10^{-3}$, $10^{-2}$, $10^{-1}$, $1$, $10$, $10^2$, $10^3$).
+- GroupKFold by 2.5\,km tiles (5 splits) to prevent spatial leakage; eco-region weights applied during scoring.
+- Response: each embedding band in Emb-14; predictors: the full 22-feature harmonic base prior to RFECV selection.
+- Metrics: out-of-sample weighted $R^2$ and absolute Pearson correlation with top-correlated harmonic per eco-region.
+- Implementation: \texttt{src/analysis/compute\_embedding\_harmonic\_similarity.py}; outputs under \texttt{results/analysis\_similarity/}.
+
+This analysis supports interpretability claims in the main text by demonstrating systematic correlations with seasonal amplitude and baseline offsets across eco-regions. In the updated results, absolute correlations typically fall in the 0.5–0.7 range for first-harmonic amplitudes (NDVI/NBR) and CRSWIR offsets in multiple regions, while mean linear $R^2$ remains negative across regions (average of the per‑region means: −0.513)—indicating that embeddings encode additional spatial–contextual information beyond the harmonic base. Mediterranean regions also show notable NDVI phase\_h1 alignment, consistent with timing differences under drought stress.
+
+Component summary across regions:
+\begin{itemize}
+  \item \textbf{amplitude\_h1} dominates (mean |r| ≈ 0.498 across 16 region-uses) — largely NDVI/NBR.
+  \item \textbf{offset} follows (mean |r| ≈ 0.440 across 19 region-uses) — CRSWIR and NBR baselines.
+  \item phase components appear less frequently; NDVI phase\_h1 arises in the Mediterranean.
+\end{itemize}
+
+Summary of patterns:
+\begin{itemize}
+  \item Seasonal amplitude (first harmonic): |r| \~0.5–0.7 for NDVI or NBR amplitude\_h1 in several regions (e.g., Alps, Oceanic Southwest, Western crystalline).
+  \item Baseline spectral properties: |r| \~0.5–0.7 for CRSWIR offset in mountain regions (e.g., Vosges, Jura, Central Massif).
+  \item Regional specialization: Western/Atlantic regions emphasize NBR amplitude/offset; Mediterranean adds NDVI phase\_h1.
+\end{itemize}
+
+\section{S4. Eco-region Folds, Sampling, and Weights}
+
+Training and evaluation use eco-region–stratified 5-fold CV. Per-sample weights are computed as the inverse of the forest-area fraction per eco-region to balance extensive Atlantic/semi-continental regions with smaller Mediterranean/Alpine regions. Identical folds and weights are shared across harmonics and embeddings to enable fair comparison. Fold manifests and weights are available in the repository’s results directory.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/final_snr_map-4.png}
+    \caption{\textbf{Figure S2.} Signal-to-noise ratio maps across France for different harmonic configurations. Top row: median SNR; middle row: SNR interquartile range (variability); bottom row: energy distribution in first harmonic. Two harmonics (center column) provides optimal balance between signal capture and noise rejection. Eco-regions numbered as in main text.}
+    \label{fig:snr_maps}
+\end{figure}
+
+% (Merged similarity summary into S3 above to avoid duplicate numbering.)
+
+% (Single S4 section retained above; removed duplicate header.)
+
+\subsection{Fold Construction}
+\begin{itemize}
+  \item Training data are built from non-overlapping 2.5\,km tiles (\texttt{results/datasets/tiles\_2\_5\_km\_final.parquet}).
+  \item Spatial units: 2.5\,km tiles assigned to exactly one of 5 folds per eco-region (tile-based grouping).
+  \item Independence: tiles (and all pixels within) do not cross folds; tuning and feature selection use only training folds to avoid spatial leakage.
+  \item Coverage: folds are balanced by forested area per eco-region.
+\end{itemize}
+
+\subsection{Sampling and Weights}
+\begin{itemize}
+  \item Class imbalance handled during training to reflect deciduous/evergreen proportions.
+  \item Area-weighted aggregation for national metrics to avoid oversampling larger regions.
+  \item Evaluation restricted to the national forest mask.
+\end{itemize}
+
+\subsection{Regional Performance Analysis}
+
+\subsection{Eco-region Characteristics}
+France's 11 eco-regions present diverse challenges:
+\begin{itemize}
+    \item \textbf{Mediterranean}: Drought stress, evergreen oak dominance, phenological boundary blurring
+    \item \textbf{Alps/Pyrenees}: Elevation gradients, conifer-deciduous transitions, topographic effects
+    \item \textbf{Atlantic}: Maritime pine plantations, oak-beech forests, clear phenological signals
+    \item \textbf{Semi-Continental}: Mixed forests, agricultural fragmentation, strong seasonality
+    \item \textbf{Corsica}: Endemic species, complex topography, limited training data
+\end{itemize}
+
+\subsection{Performance Patterns}
+Embedding advantages broadly correlate with environmental complexity:
+\begin{itemize}
+    \item Continental/western forests: Complex species mixtures benefit from pattern learning.
+    \item Mountain regions: Elevation-driven phenology benefits from additional spatial context.
+    \item Mediterranean: Drought-adapted phenology reduces separability; explicit temporal modeling remains competitive.
+\end{itemize}
+
+\section{S5. Implementation Details}
+
+\subsection{Harmonic Feature Extraction}
+\begin{enumerate}
+    \item Sentinel-2 Level-2A time series extraction (2023, 10-day composites)
+    \item Cloud masking using QA60 band and SCL classification
+    \item Temporal interpolation and gap-filling
+    \item Two-harmonic Fourier decomposition per vegetation index
+    \item Feature aggregation at 10\,m pixel level
+\end{enumerate}
+Implementation: \texttt{src/features/extract\_harmonic\_features.py}
+
+\subsection{Embedding Feature Extraction}
+\begin{enumerate}
+  \item Data source: Earth Engine “Satellite Embedding V1 (Annual)” (10\,m, 64D, 2017–2024) \citep{Google2025SatelliteEmbeddingV1}.
+  \item Export year: 2023; exported at native 10\,m over forest AOIs; bands \texttt{A00..A63} (unit-normalized; public assets store int8 quantized values de-quantized on read).
+  \item Processing: server-side clipping per tile; local mosaic to the training grid; no additional normalization.
+  \item Note: some external work resamples embeddings to coarser grids (e.g., 500\,m) for continental-scale transfer; here we retain 10\,m for boundary fidelity \citep{Houriez2025AEFDataGen}.
+\end{enumerate}
+Implementation: \texttt{src/gee/} and \texttt{src/inference/} workflows.
+
+\subsection{Model Configuration}
+Random Forest hyperparameters (HalvingGridSearchCV optimized):
+\begin{itemize}
+    \item \texttt{n\_estimators}: 50, \texttt{max\_depth}: 30
+    \item \texttt{min\_samples\_split}: 30, \texttt{min\_samples\_leaf}: 15
+    \item \texttt{class\_weight}: balanced (addressing 75\%/25\% imbalance)
+\end{itemize}
+
+\subsection{Computational Requirements}
+\begin{itemize}
+    \item Harmonic extraction: 48 minutes (France, 100×100 km tiles, 80 cores)
+    \item Model training: 2 hours (14.1M pixels, 5-fold CV)
+    \item Inference: 55 minutes (2+ billion forest pixels)
+    \item Memory: 32 GB RAM recommended
+    \item Storage: 150 GB intermediate products
+\end{itemize}
+
+\subsection{Reproducibility Pointers}
+\begin{itemize}
+  \item Embedding top-k list: \texttt{results/feature\_selection\_embeddings/features\_embeddings\_topk\_k14.txt}
+  \item CV folds/weights: \texttt{results/cv\_folds\_ecoregions.json}
+  \item Similarity outputs: \texttt{results/analysis\_similarity/}
+\end{itemize}
+
+\section{S6. Validation Metrics}
+
+Beyond overall accuracy (92.4\% embeddings, 90.4\% harmonics), detailed metrics reveal model strengths:
+
+\begin{table}[H]
+    \centering
+    \caption{\textbf{Table S2.} Detailed validation metrics}
+    \begin{tabular}{lcc}
+        \hline
+        \textbf{Metric} & \textbf{Emb-14} & \textbf{Harmonic-14} \\
+        \hline
+        Producer's accuracy (Deciduous) & 93.5\% & 91.2\% \\
+        Producer's accuracy (Evergreen) & 89.1\% & 87.8\% \\
+        User's accuracy (Deciduous) & 94.8\% & 93.5\% \\
+        User's accuracy (Evergreen) & 90.2\% & 89.1\% \\
+        Kappa coefficient & 0.86 & 0.84 \\
+        Matthews correlation coefficient & 0.87 & 0.85 \\
+        \hline
+    \end{tabular}
+    \label{tab:validation_metrics}
+\end{table}
+
+Both approaches achieve substantial agreement (Kappa > 0.8), with embeddings showing consistent but modest improvements across all metrics.
+
+\section{S7. Data and Code Availability}
+
+\begin{itemize}
+    \item \textbf{Training data}: \texttt{results/datasets/training\_datasets\_pixels.parquet}
+    \item \textbf{Models}: \texttt{results/final\_model/}
+    \item \textbf{Harmonic extraction}: \texttt{src/features/}
+    \item \textbf{Embedding workflows}: \texttt{src/gee/}
+    \item \textbf{Similarity analysis}: \texttt{src/analysis/compute\_embedding\_harmonic\_similarity.py}
+    \item \textbf{Inference maps}: Available upon publication
+\end{itemize}
+
+All code and configurations available at: [repository URL]
+
+\section{S8. References for Foundation Models}
+
+This section collects background references for geospatial foundation models and embedding-based approaches referenced in the main text:
+
+- SatMAE pre-training for temporal and multi-spectral satellite imagery \citep{Cong2022}.
+- Prithvi-EO multi-temporal geospatial foundation models and resources \citep{Szwarcman2024PrithviEO2}.
+- Billion-scale remote sensing foundation model results across tasks \citep{Cha2023Billion}.
+- Generative foundation modeling for satellite imagery \citep{Khanna2023DiffusionSat}.
+- Discussion on when foundation models are effective for pixel-level classification \citep{Xie2024FoundationEffective}.
+
+\section{S9. Product Comparisons (DLT, BD For\^et V2)}
+
+We compare the 2023 harmonic-based phenology map against Copernicus DLT (broadleaved vs coniferous) and BD For\^et V2 (deciduous vs evergreen) using per-tile and per-eco-region summaries. Agreement is computed only where both products agree that a pixel is forest. National summary metrics are reported in Table~\ref{tab:product_comparison_national} of the main text.
+
+\subsection{Spatial Agreement Maps}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/map_oa_2x2_DLT.png}
+    \caption{Overall accuracy (2\,x\,2\,km tiles) between the harmonic phenology map and Copernicus DLT, evaluated where both maps indicate forest. Darker colors indicate higher agreement.}
+    \label{fig:oa_map_dlt}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/map_oa_2x2_BDForet.png}
+\caption{Overall accuracy (2\,x\,2\,km tiles) between the harmonic phenology map and BD For\^et V2, evaluated where both maps indicate forest.}
+    \label{fig:oa_map_bdforet}
+\end{figure}
+
+\subsection{Eco-region Metrics}
+
+\begin{table}[H]
+    \centering
+\caption{Eco-region agreement: harmonic phenology vs DLT and BD For\^et V2. Values derived from results/comparison CSVs.}
+    \begin{tabular}{lcccc}
+        \hline
+        Eco-region & OA vs DLT & Kappa vs DLT & OA vs BD For\^et & Kappa vs BD For\^et \\
+        \hline
+        Alps & 0.513 & 0.027 & 0.486 & -0.031 \\
+        Central Massif & 0.588 & 0.092 & 0.569 & 0.077 \\
+        Corsica & 0.288 & -0.008 & 0.462 & -0.011 \\
+        Greater Crystalline and Oceanic West & 0.622 & 0.015 & 0.609 & 0.013 \\
+        Greater Semi-Continental East & 0.787 & 0.074 & 0.772 & 0.084 \\
+        Jura & 0.567 & -0.007 & 0.438 & -0.179 \\
+        Mediterranean & 0.514 & 0.054 & 0.498 & -0.003 \\
+        Oceanic Southwest & 0.689 & 0.368 & 0.698 & 0.347 \\
+        Pyrenees & 0.584 & 0.060 & 0.617 & 0.145 \\
+        Semi-Oceanic North Center & 0.774 & 0.044 & 0.771 & 0.024 \\
+        Vosges & 0.515 & 0.029 & 0.367 & -0.327 \\
+        \hline
+    \end{tabular}
+    \label{tab:product_comparison_ecoregion}
+\end{table}
+
+\bibliographystyle{Frontiers-Harvard}
+\bibliography{phenology}
+
+\end{document}

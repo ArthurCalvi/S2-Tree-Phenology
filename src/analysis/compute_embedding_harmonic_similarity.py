@@ -54,8 +54,10 @@ def load_tiles_centroids(tiles_parquet: str) -> pd.DataFrame:
         c = geom.centroid
         xs.append(c.x)
         ys.append(c.y)
+    # Prefer existing tile_id column if present; otherwise use row index
+    tile_id = df["tile_id"].to_numpy() if "tile_id" in df.columns else np.arange(len(df), dtype=int)
     out = pd.DataFrame({
-        "tile_id": np.arange(len(df), dtype=int),  # tile_id assumed = row index
+        "tile_id": tile_id.astype(int),
         "x2154": xs,
         "y2154": ys,
     })
@@ -170,6 +172,8 @@ def compute_similarity(cfg: SimilarityConfig) -> None:
     coef_records_feature: List[Dict] = []
     closest_region_records: List[Dict] = []
     closest_tile_records: List[Dict] = []
+    # Region summary (top correlated harmonic groups per region)
+    region_group_summary: List[Dict] = []
 
     # Preload tile centroids
     tile_xy = load_tiles_centroids(cfg.tiles_parquet)
@@ -355,6 +359,7 @@ def compute_similarity(cfg: SimilarityConfig) -> None:
                 "eco_region": eco,
                 "embedding": emb_col,
                 "best_feature": best_feat,
+                "best_group": feature_group_label(best_feat),
                 "corr_abs": abs(best_corr),
                 "corr_signed": best_corr,
             })
@@ -388,6 +393,30 @@ def compute_similarity(cfg: SimilarityConfig) -> None:
     closest_region_df = pd.DataFrame(closest_region_records)
     closest_tile_df = pd.DataFrame(closest_tile_records)
 
+    # Derive region-level top correlated harmonic groups summary
+    if len(closest_region_records) > 0:
+        closest_region_df_tmp = pd.DataFrame(closest_region_records)
+        grp = (
+            closest_region_df_tmp
+            .assign(group=lambda d: d["best_group"].astype(str))
+            .groupby(["eco_region", "group"])['corr_abs']
+        )
+        agg = grp.agg(['count', 'mean', 'min', 'max']).reset_index()
+        agg = agg.rename(columns={
+            'count': 'n_pairs',
+            'mean': 'corr_abs_mean',
+            'min': 'corr_abs_min',
+            'max': 'corr_abs_max',
+        })
+        # Keep top 5 groups per region for compactness
+        region_group_summary_df = (
+            agg.sort_values(['eco_region', 'corr_abs_mean'], ascending=[True, False])
+            .groupby('eco_region', as_index=False)
+            .head(5)
+        )
+    else:
+        region_group_summary_df = pd.DataFrame()
+
     out_tile = os.path.join(cfg.output_dir, "embedding_harmonic_similarity_tile.parquet")
     out_region = os.path.join(cfg.output_dir, "embedding_harmonic_similarity_region.csv")
     per_tile_df.to_parquet(out_tile, index=False)
@@ -401,12 +430,15 @@ def compute_similarity(cfg: SimilarityConfig) -> None:
     closest_tile_out = os.path.join(cfg.output_dir, "closest_harmonic_tile.parquet")
     closest_region_out = os.path.join(cfg.output_dir, "closest_harmonic_region.csv")
     coef_feat_out = os.path.join(cfg.output_dir, "embedding_harmonic_coefficients_region.csv")
+    region_groups_out = os.path.join(cfg.output_dir, "embedding_harmonic_region_topgroups.csv")
     closest_tile_df.to_parquet(closest_tile_out, index=False)
     closest_region_df.to_csv(closest_region_out, index=False)
     coef_feat_df.to_csv(coef_feat_out, index=False)
+    region_group_summary_df.to_csv(region_groups_out, index=False)
     print(f"Wrote per-tile closest harmonics to {closest_tile_out} ({len(closest_tile_df)} rows)")
     print(f"Wrote per-region closest harmonics to {closest_region_out} ({len(closest_region_df)} rows)")
     print(f"Wrote region-level coefficients to {coef_feat_out} ({len(coef_feat_df)} rows)")
+    print(f"Wrote region-level top correlated harmonic groups to {region_groups_out} ({len(region_group_summary_df)} rows)")
 
     # Also persist config used
     with open(os.path.join(cfg.output_dir, "config.json"), "w") as f:
