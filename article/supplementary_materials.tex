@@ -2,7 +2,7 @@
 % Supplementary Materials - Frontiers Format
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 \documentclass[utf8]{frontiers_suppmat}
-\usepackage{url,hyperref,lineno,microtype,subcaption}
+\usepackage{url,hyperref,lineno,microtype}
 \usepackage{natbib}
 \usepackage[onehalfspacing]{setspace}
 \usepackage{float}
@@ -21,15 +21,17 @@
 
 \section{S0. Overview and Linkage to Main Text}
 
-This supplement complements the methods and results in the main manuscript (article\_v3.tex). Cross-references indicate where expanded details live:
+This supplement complements the methods and results in the main manuscript. Cross-references indicate where expanded details live:
 
-- S1–S2 expand Section “Methods” on Harmonic-14 design and justify the two-harmonic choice referenced in the main text (see Methods: Harmonic-14).
-- S3 provides additional details for the Embedding–Harmonic similarity analysis discussed in the main text (Embedding–Harmonic Similarity Analysis).
-- S4 documents eco-region folds, sampling, and weighting referenced in Methods (Cross-validation) and used throughout evaluation.
-- S5 consolidates implementation specifics for feature extraction, models, and compute requirements referenced in Methods (Forest Mask/Implementation).
-- S6 lists extended validation metrics complementing headline accuracies in Results.
-- S7 reports data/code availability; S8 gathers background citations for geospatial foundation models.
-- S9 contains product-comparison maps and eco-region tables referred to by “Comparison with Existing Products”.
+\begin{itemize}
+    \item S1–S2 expand Section "Methods" on Harmonic-14 design and justify the two-harmonic choice referenced in the main text (see Methods: Harmonic-14).
+    \item S3 provides additional details for the Embedding–Harmonic similarity analysis discussed in the main text (Embedding–Harmonic Similarity Analysis).
+    \item S4 documents eco-region folds, sampling, and weighting referenced in Methods (Cross-validation) and used throughout evaluation.
+    \item S5 consolidates implementation specifics for feature extraction, models, and compute requirements referenced in Methods (Forest Mask/Implementation).
+    \item S6 lists extended validation metrics complementing headline accuracies in Results.
+    \item S7 reports data/code availability; S8 gathers background citations for geospatial foundation models.
+    \item S9 contains product-comparison maps and eco-region tables referred to by "Comparison with Existing Products".
+\end{itemize}
 
 \section{S1. Recursive Feature Elimination with Cross-Validation}
 
@@ -115,16 +117,16 @@ This analysis supports interpretability claims in the main text by demonstrating
 
 Component summary across regions:
 \begin{itemize}
-  \item \textbf{amplitude\_h1} dominates (mean |r| ≈ 0.498 across 16 region-uses) — largely NDVI/NBR.
-  \item \textbf{offset} follows (mean |r| ≈ 0.440 across 19 region-uses) — CRSWIR and NBR baselines.
-  \item phase components appear less frequently; NDVI phase\_h1 arises in the Mediterranean.
+    \item \textbf{amplitude\_h1} dominates (mean |r| $\approx$ 0.498 across 16 region-uses) — largely NDVI/NBR.
+    \item \textbf{offset} follows (mean |r| $\approx$ 0.440 across 19 region-uses) — CRSWIR and NBR baselines.
+    \item Phase components appear less frequently; NDVI phase\_h1 arises in the Mediterranean.
 \end{itemize}
 
 Summary of patterns:
 \begin{itemize}
-  \item Seasonal amplitude (first harmonic): |r| \~0.5–0.7 for NDVI or NBR amplitude\_h1 in several regions (e.g., Alps, Oceanic Southwest, Western crystalline).
-  \item Baseline spectral properties: |r| \~0.5–0.7 for CRSWIR offset in mountain regions (e.g., Vosges, Jura, Central Massif).
-  \item Regional specialization: Western/Atlantic regions emphasize NBR amplitude/offset; Mediterranean adds NDVI phase\_h1.
+    \item Seasonal amplitude (first harmonic): |r| $\sim$0.5–0.7 for NDVI or NBR amplitude\_h1 in several regions (e.g., Alps, Oceanic Southwest, Western crystalline).
+    \item Baseline spectral properties: |r| $\sim$0.5–0.7 for CRSWIR offset in mountain regions (e.g., Vosges, Jura, Central Massif).
+    \item Regional specialization: Western/Atlantic regions emphasize NBR amplitude/offset; Mediterranean adds NDVI phase\_h1.
 \end{itemize}
 
 \section{S4. Eco-region Folds, Sampling, and Weights}
@@ -144,22 +146,22 @@ Training and evaluation use eco-region–stratified 5-fold CV. Per-sample weight
 
 \subsection{Fold Construction}
 \begin{itemize}
-  \item Training data are built from non-overlapping 2.5\,km tiles (\texttt{results/datasets/tiles\_2\_5\_km\_final.parquet}).
-  \item Spatial units: 2.5\,km tiles assigned to exactly one of 5 folds per eco-region (tile-based grouping).
-  \item Independence: tiles (and all pixels within) do not cross folds; tuning and feature selection use only training folds to avoid spatial leakage.
-  \item Coverage: folds are balanced by forested area per eco-region.
+    \item Training data are built from non-overlapping 2.5\,km tiles (\texttt{results/datasets/tiles\_2\_5\_km\_final.parquet}).
+    \item Spatial units: 2.5\,km tiles assigned to exactly one of 5 folds per eco-region (tile-based grouping).
+    \item Independence: tiles (and all pixels within) do not cross folds; tuning and feature selection use only training folds to avoid spatial leakage.
+    \item Coverage: folds are balanced by forested area per eco-region.
 \end{itemize}
 
 \subsection{Sampling and Weights}
 \begin{itemize}
-  \item Class imbalance handled during training to reflect deciduous/evergreen proportions.
-  \item Area-weighted aggregation for national metrics to avoid oversampling larger regions.
-  \item Evaluation restricted to the national forest mask.
+    \item Class imbalance handled during training to reflect deciduous/evergreen proportions.
+    \item Area-weighted aggregation for national metrics to avoid oversampling larger regions.
+    \item Evaluation restricted to the national forest mask.
 \end{itemize}
 
 \subsection{Regional Performance Analysis}
 
-\subsection{Eco-region Characteristics}
+\subsubsection{Eco-region Characteristics}
 France's 11 eco-regions present diverse challenges:
 \begin{itemize}
     \item \textbf{Mediterranean}: Drought stress, evergreen oak dominance, phenological boundary blurring
@@ -169,7 +171,7 @@ France's 11 eco-regions present diverse challenges:
     \item \textbf{Corsica}: Endemic species, complex topography, limited training data
 \end{itemize}
 
-\subsection{Performance Patterns}
+\subsubsection{Performance Patterns}
 Embedding advantages broadly correlate with environmental complexity:
 \begin{itemize}
     \item Continental/western forests: Complex species mixtures benefit from pattern learning.
@@ -191,10 +193,10 @@ Implementation: \texttt{src/features/extract\_harmonic\_features.py}
 
 \subsection{Embedding Feature Extraction}
 \begin{enumerate}
-  \item Data source: Earth Engine “Satellite Embedding V1 (Annual)” (10\,m, 64D, 2017–2024) \citep{Google2025SatelliteEmbeddingV1}.
-  \item Export year: 2023; exported at native 10\,m over forest AOIs; bands \texttt{A00..A63} (unit-normalized; public assets store int8 quantized values de-quantized on read).
-  \item Processing: server-side clipping per tile; local mosaic to the training grid; no additional normalization.
-  \item Note: some external work resamples embeddings to coarser grids (e.g., 500\,m) for continental-scale transfer; here we retain 10\,m for boundary fidelity \citep{Houriez2025AEFDataGen}.
+    \item Data source: Earth Engine "Satellite Embedding V1 (Annual)" (10\,m, 64D, 2017–2024) \citep{Google2025SatelliteEmbeddingV1}.
+    \item Export year: 2023; exported at native 10\,m over forest AOIs; bands \texttt{A00..A63} (unit-normalized; public assets store int8 quantized values de-quantized on read).
+    \item Processing: server-side clipping per tile; local mosaic to the training grid; no additional normalization.
+    \item Note: some external work resamples embeddings to coarser grids (e.g., 500\,m) for continental-scale transfer; here we retain 10\,m for boundary fidelity \citep{Houriez2025AEFDataGen}.
 \end{enumerate}
 Implementation: \texttt{src/gee/} and \texttt{src/inference/} workflows.
 
@@ -217,12 +219,12 @@ Random Forest hyperparameters (HalvingGridSearchCV optimized):
 
 \subsection{Reproducibility Pointers}
 \begin{itemize}
-  \item Embedding top-k list: \texttt{results/feature\_selection\_embeddings/features\_embeddings\_topk\_k14.txt}
-  \item CV folds/weights: \texttt{results/cv\_folds\_ecoregions.json}
-  \item Similarity outputs: \texttt{results/analysis\_similarity/}
+    \item Embedding top-k list: \texttt{results/feature\_selection\_embeddings/features\_embeddings\_topk\_k14.txt}
+    \item CV folds/weights: \texttt{results/cv\_folds\_ecoregions.json}
+    \item Similarity outputs: \texttt{results/analysis\_similarity/}
 \end{itemize}
 
-\section{S6. Validation Metrics}
+\section{S6. Validation and Calibration Metrics}
 
 Beyond overall accuracy (92.4\% embeddings, 90.4\% harmonics), detailed metrics reveal model strengths:
 
@@ -246,6 +248,51 @@ Beyond overall accuracy (92.4\% embeddings, 90.4\% harmonics), detailed metrics 
 
 Both approaches achieve substantial agreement (Kappa > 0.8), with embeddings showing consistent but modest improvements across all metrics.
 
+\subsection{Calibration and Threshold Sensitivity}
+
+We recomputed eco-region-balanced 5-fold cross-validation to extract out-of-fold probabilities for both Random Forest models. Key findings:
+
+\begin{itemize}
+    \item \textbf{Expected Calibration Error (ECE)}: Emb-Top14 = 0.033; Harm-Top14 = 0.059 (Maximum Calibration Error 0.114 vs 0.184).
+    \item \textbf{Threshold sweep (0.45/0.50/0.55)}: Embedding macro-F1 spans 0.903–0.906; harmonic macro-F1 spans 0.870–0.879.
+    \item \textbf{Fold variability}: Embedding macro-F1 standard deviation 0.003; harmonic 0.011.
+\end{itemize}
+
+Reliability histograms (10 bins) and per-threshold confusion counts are available in: \texttt{results/analysis\_calibration/embeddings/}\{\texttt{calibration\_metrics.json}, \texttt{reliability\_curve.csv}\} and \texttt{results/analysis\_calibration/harmonic/}\{\texttt{calibration\_metrics.json}, \texttt{reliability\_curve.csv}\}.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.85\textwidth]{images/reliability_comparison.png}
+    \caption{\textbf{Figure S2.} Reliability diagrams comparing Emb-Top14 (left) and Harm-Top14 (right) Random Forests. Bars show sample fraction per probability bin; circles plot mean confidence, squares plot empirical accuracy. The embedding model exhibits lower calibration error (ECE 0.033 vs 0.059) and smaller maximum deviation.}
+    \label{fig:reliability}
+\end{figure}
+
+The per-eco-region accuracy/F1 deltas that back Table~\ref{tab:eco_region_performance} are stored in \texttt{results/analysis\_coherence/eco\_region\_delta\_metrics.csv} (generated via \texttt{src/analysis/compute\_eco\_region\_deltas.py}).
+
+\subsection{Spatial Coherence Metrics}
+
+To quantify the qualitative differences in map texture, we computed two coherence metrics per tile and aggregated nationally:
+\begin{itemize}
+    \item \textbf{Edge density} (m km$^{-2}$): total length of class boundaries divided by valid forest area;
+    \item \textbf{Patch density} (per 100 km$^{2}$): number of 8-connected deciduous or evergreen patches scaled to 100 km$^{2}$.
+\end{itemize}
+
+Evaluated over 639 eco-balanced 2.5\,km tiles (sampling the national rasters):
+
+\begin{table}[H]
+    \centering
+    \caption{\textbf{Table S3.} Spatial coherence (national means).}
+    \begin{tabular}{lcc}
+        \hline
+        \textbf{Variant} & \textbf{Edge density (m km$^{-2}$)} & \textbf{Patch density (per 100 km$^{2}$)} \\ \hline
+        Embedding (Top-14) & 3924 & 2925 \\
+        Harmonic (Top-14) & 8789 & 8462 \\
+        Harmonic + 3\,$\times$\,3 median & 4326 & 3150 \\ \hline
+    \end{tabular}
+\end{table}
+
+Embeddings produce fewer boundaries and fewer isolated patches than harmonics, consistent with spatial context captured during pre-training. A simple 3\,$\times$\,3 median filter reduces harmonic speckle but embeddings remain ~9\% lower in edge density and ~7\% lower in patch density on average. Implementation and raw outputs are provided by the CLI \texttt{src/analysis/compute\_coherence\_metrics.py}, with summaries in \texttt{results/analysis\_coherence/coherence\_summary.csv}.
+
 \section{S7. Data and Code Availability}
 
 \begin{itemize}
@@ -263,11 +310,13 @@ All code and configurations available at: [repository URL]
 
 This section collects background references for geospatial foundation models and embedding-based approaches referenced in the main text:
 
-- SatMAE pre-training for temporal and multi-spectral satellite imagery \citep{Cong2022}.
-- Prithvi-EO multi-temporal geospatial foundation models and resources \citep{Szwarcman2024PrithviEO2}.
-- Billion-scale remote sensing foundation model results across tasks \citep{Cha2023Billion}.
-- Generative foundation modeling for satellite imagery \citep{Khanna2023DiffusionSat}.
-- Discussion on when foundation models are effective for pixel-level classification \citep{Xie2024FoundationEffective}.
+\begin{itemize}
+    \item SatMAE pre-training for temporal and multi-spectral satellite imagery \citep{Cong2022}.
+    \item Prithvi-EO multi-temporal geospatial foundation models and resources \citep{Szwarcman2024PrithviEO2}.
+    \item Billion-scale remote sensing foundation model results across tasks \citep{Cha2023Billion}.
+    \item Generative foundation modeling for satellite imagery \citep{Khanna2023DiffusionSat}.
+    \item Discussion on when foundation models are effective for pixel-level classification \citep{Xie2024FoundationEffective}.
+\end{itemize}
 
 \section{S9. Product Comparisons (DLT, BD For\^et V2)}
 
@@ -277,42 +326,75 @@ We compare the 2023 harmonic-based phenology map against Copernicus DLT (broadle
 
 \begin{figure}[H]
     \centering
-    \includegraphics[width=\textwidth]{images/map_oa_2x2_DLT.png}
-    \caption{Overall accuracy (2\,x\,2\,km tiles) between the harmonic phenology map and Copernicus DLT, evaluated where both maps indicate forest. Darker colors indicate higher agreement.}
-    \label{fig:oa_map_dlt}
-\end{figure}
-
-\begin{figure}[H]
-    \centering
-    \includegraphics[width=\textwidth]{images/map_oa_2x2_BDForet.png}
-\caption{Overall accuracy (2\,x\,2\,km tiles) between the harmonic phenology map and BD For\^et V2, evaluated where both maps indicate forest.}
-    \label{fig:oa_map_bdforet}
+    \includegraphics[width=0.49\textwidth]{images/oa2x2_embeddings_dlt.png}\hfill
+    \includegraphics[width=0.49\textwidth]{images/oa2x2_embeddings_bdforet.png}\\[0.5em]
+    \includegraphics[width=0.49\textwidth]{images/oa2x2_harmonic_dlt.png}\hfill
+    \includegraphics[width=0.49\textwidth]{images/oa2x2_harmonic_bdforet.png}
+    \caption{Tile-level agreement (OA, \%) computed where both maps indicate forest. Top: Embeddings vs DLT (left) and BD For\^et (right). Bottom: Harmonics vs DLT (left) and BD For\^et (right). Compact styling and percent colorbars highlight national patterns without clutter.}
+    \label{fig:oa2x2_products}
 \end{figure}
 
 \subsection{Eco-region Metrics}
 
+The weighted eco-region summaries for both harmonic and embedding comparisons—versus DLT and BD For\^et—are available in \texttt{results/comparison/embeddings\_vs\_dlt\_by\_region.csv}, \texttt{results/comparison/embeddings\_vs\_bdforet\_by\_region.csv}, and their harmonic counterparts. These tables include overall accuracy, kappa, and macro-F1 along with raw class-by-class confusion counts; analysts can slice them directly to build maps or statistics tailored to their regions of interest.
+
+\section{S10. Multiclass Tree Taxa from Embeddings}
+
+We trained Random Forests on the 64‑dimensional annual embeddings to classify tree taxa beyond deciduous–evergreen. At the genus level the model achieves overall accuracy (OA) of 0.828, weighted F1 of 0.829, and macro‑F1 of 0.387. Species‑level performance is lower but still competitive given the long‑tailed label distribution: OA 0.769, weighted F1 0.771, macro‑F1 0.289. Per‑eco‑region means reflect similar patterns (genus: OA 0.805, macro‑F1 0.381; species: OA 0.755, macro‑F1 0.278). These results indicate that embeddings capture taxonomic cues most strongly for dominant classes; tail performance is limited by class imbalance and label sparsity.
+
+\subsection*{Eco‑region Performance}
+
 \begin{table}[H]
     \centering
-\caption{Eco-region agreement: harmonic phenology vs DLT and BD For\^et V2. Values derived from results/comparison CSVs.}
-    \begin{tabular}{lcccc}
+    \caption{\textbf{Table S3.} Genus classification by eco‑region.}
+    \begin{tabular}{lcc}
         \hline
-        Eco-region & OA vs DLT & Kappa vs DLT & OA vs BD For\^et & Kappa vs BD For\^et \\
+        Eco‑region & OA & Macro F1 \\
         \hline
-        Alps & 0.513 & 0.027 & 0.486 & -0.031 \\
-        Central Massif & 0.588 & 0.092 & 0.569 & 0.077 \\
-        Corsica & 0.288 & -0.008 & 0.462 & -0.011 \\
-        Greater Crystalline and Oceanic West & 0.622 & 0.015 & 0.609 & 0.013 \\
-        Greater Semi-Continental East & 0.787 & 0.074 & 0.772 & 0.084 \\
-        Jura & 0.567 & -0.007 & 0.438 & -0.179 \\
-        Mediterranean & 0.514 & 0.054 & 0.498 & -0.003 \\
-        Oceanic Southwest & 0.689 & 0.368 & 0.698 & 0.347 \\
-        Pyrenees & 0.584 & 0.060 & 0.617 & 0.145 \\
-        Semi-Oceanic North Center & 0.774 & 0.044 & 0.771 & 0.024 \\
-        Vosges & 0.515 & 0.029 & 0.367 & -0.327 \\
+        Semi-Oceanic North Center & 0.805 & 0.260 \\
+        Unknown & 0.947 & 0.407 \\
+        Mediterranean & 0.953 & 0.540 \\
+        Corsica & 0.821 & 0.490 \\
+        Alps & 0.863 & 0.478 \\
+        Oceanic Southwest & 0.878 & 0.308 \\
+        Greater Crystalline and Oceanic West & 0.697 & 0.317 \\
+        Vosges & 0.616 & 0.366 \\
+        Jura & 0.787 & 0.316 \\
+        Pyrenees & 0.786 & 0.320 \\
+        Greater Semi-Continental East & 0.745 & 0.380 \\
+        Central Massif & 0.769 & 0.395 \\
         \hline
     \end{tabular}
-    \label{tab:product_comparison_ecoregion}
+    \label{tab:genus_ecoregion_embeddings}
 \end{table}
+
+\begin{table}[H]
+    \centering
+    \caption{\textbf{Table S4.} Species classification by eco‑region.}
+    \begin{tabular}{lcc}
+        \hline
+        Eco‑region & OA & Macro F1 \\
+        \hline
+        Semi-Oceanic North Center & 0.763 & 0.232 \\
+        Unknown & 0.897 & 0.521 \\
+        Mediterranean & 0.834 & 0.275 \\
+        Corsica & 0.746 & 0.297 \\
+        Alps & 0.752 & 0.335 \\
+        Oceanic Southwest & 0.822 & 0.200 \\
+        Greater Crystalline and Oceanic West & 0.574 & 0.214 \\
+        Vosges & 0.621 & 0.246 \\
+        Jura & 0.783 & 0.237 \\
+        Pyrenees & 0.771 & 0.189 \\
+        Greater Semi-Continental East & 0.741 & 0.273 \\
+        Central Massif & 0.758 & 0.319 \\
+        \hline
+    \end{tabular}
+    \label{tab:species_ecoregion_embeddings}
+\end{table}
+
+\subsection*{Notes}
+- Dominant taxa attain high F1 (often 0.64–0.90), while rare classes depress macro‑F1.
+- Future improvements: class‑balanced sampling and losses, hierarchical genus→species modeling, eco‑region‑aware priors, probability calibration with top‑k reporting, and light spatial regularization.
 
 \bibliographystyle{Frontiers-Harvard}
 \bibliography{phenology}

@@ -2,15 +2,14 @@ data_dir: /lustre/fsn1/projects/rech/ego/uyr48jk/alphaearth_embeddings/2019
 satellite_default:
   resolution: 10
   tile_size: 10240
-  dtype: Float32
+  dtype: UInt16
   composite_method: MOSAIC
   aoi:
-    country: France
     spatial:
-      left: 12550
-      right: 1118000
-      bottom: 6050000
-      top: 7163000
+      left: 1155000
+      right: 1245000
+      bottom: 6044000
+      top: 6237000
       epsg: 2154
     temporal:
       start_date: '2019-01-01'
@@ -20,7 +19,7 @@ satellite_default:
     max_tile_size: 8
 customs:
   alphaearth_embeddings:
-    url: GOOGLE/SATELLITE/EMBEDDING/V1/ANNUAL
+    url: GOOGLE/SATELLITE_EMBEDDING/V1/ANNUAL
     pixel_range:
       - -1
       - 1
@@ -90,7 +89,7 @@ customs:
       - A62
       - A63
     composite_method: MOSAIC
-    dtype: Float32
+    dtype: UInt16
     aoi:
       temporal:
         start_date: '2019-01-01'

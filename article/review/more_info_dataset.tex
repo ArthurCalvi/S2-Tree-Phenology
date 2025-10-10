@@ -1,0 +1,15 @@
+\subsection{Building a Balanced Reference Dataset}
+
+Creating training data for 14 million pixels required careful orchestration of multiple sources while maintaining geographic and ecological balance. We combined four complementary datasets:
+
+\textbf{PureForest} \citep{gaydon2024pureforestlargescaleaeriallidar}: Provides ground truth for monospecific forests with over 135,000 patches (50\,m × 50\,m) primarily from southern France. Labels were semi-automatically predicted and expert-verified, requiring no preprocessing.
+
+\textbf{RENECOFOR} \citep{ulrich:hal-03444393}: Part of ICP Forests, this dataset contains permanent monitoring plots (1992–present) with extensive tree measurements. We selected points from 2019–2020 within Sentinel-2 coverage, filtering trees above 15\,m height.
+
+\textbf{Tree Position Calibration}: Precise individual tree locations recorded in 2022 to help \citep{ONF} calibrate GPS positions using airborne LiDAR \citep{IGN_LiDARHD}. Dominant species were determined by counting, excluding dead or dying trees.
+
+\textbf{BD Forêt V2} \citep{IGN2024}: IGN's comprehensive forest inventory covering patches >5,000\,m² verified between 2005–2019. We applied a 100\,m negative buffer to account for potential edge changes and used it to fill regional gaps where ground measurements lacked coverage.
+
+Our sampling strategy partitioned France into 2.5\,km × 2.5\,km tiles, selecting those with minimum 10 reference pixels while maintaining 5\,km separation to reduce spatial autocorrelation. A weighted sampling approach balanced representation across eco-regions, with weights calculated as the ratio of effective forest area fraction to dataset fraction, ensuring Mediterranean and Alpine forests contributed proportionally despite smaller absolute coverage.
+
+The final dataset of 14.1 million pixels achieved remarkable diversity: 15 genera and 30 species, with oak (33\%) and pine (12\%) most common but no other genus exceeding 7\%. While deciduous pixels outnumber evergreen (75\% to 25\%), we addressed this imbalance through eco-region weighted sampling and balanced class weights during training.

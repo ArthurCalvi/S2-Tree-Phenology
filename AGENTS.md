@@ -24,3 +24,9 @@ Use concise imperative commit subjects (e.g., `add inference rf`). For PRs, incl
 
 ## Security & Configuration Tips
 Never commit secrets or machine-specific paths. Duplicate templates in `geefetch/configs/` for environment overrides instead of editing shared files. Parameterize scripts via CLI flags or config files to keep deployments reproducible.
+
+## Helpful Artifacts
+- `todo.md`: living, high-level checklist of next operational steps (e.g., data downloads, parquet regeneration/rescaling, training/inference runs). Check here first to align work with the current plan.
+- `article_methods.json`: mapping from article method components to concrete scripts, entry commands, inputs/outputs, and expected results. It links the manuscript sources (`article/article.tex`, `article/supplementary_materials.tex`, `article/phenology.bib`) to each workflow in this repo so you always know where supporting information lives. Consult and update this file frequently so it continues to reflect how the repository operates.
+- `article/` & `article/review/`: LaTeX sources for the manuscript plus supervisor feedback (`review_supervisors.md`), historical notes, and writing guidelines (`writing_a_good_scientific_paper.md`, `article_revision_guidelines.md`). Start here before editing text or responding to reviewer comments.
+- `arxiv/`: locally cached PDFs/markdown summaries of cited foundation-model and remote-sensing papers (e.g., AlphaEarth Foundations, SatMAE, SSL4Eco). Use these when refining literature context or detailing methodology inputs.

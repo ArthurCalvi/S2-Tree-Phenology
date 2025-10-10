@@ -17,6 +17,7 @@ import textwrap # For wrapping long descriptions
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable # For colorbar placement
 
 # --- Configuration & Logging ---
@@ -87,7 +88,17 @@ def get_metric_description(metric_name, ref_type):
             
     return "" # Default empty description
 
-def plot_metric_map(gdf, metric_column, output_path, title, description, cmap=DEFAULT_CMAP, dpi=DEFAULT_DPI):
+def plot_metric_map(
+    gdf,
+    metric_column,
+    output_path,
+    title,
+    description,
+    cmap=DEFAULT_CMAP,
+    dpi=DEFAULT_DPI,
+    boundary_gdf=None,
+    compact=False,
+):
     """Creates and saves a map visualization for a given metric column."""
     
     if metric_column not in gdf.columns:
@@ -98,7 +109,9 @@ def plot_metric_map(gdf, metric_column, output_path, title, description, cmap=DE
         logger.warning(f"Metric column '{metric_column}' contains only NaN values. Skipping plot.")
         return
         
-    fig, ax = plt.subplots(1, 1, figsize=(10, 11)) # Slightly taller figure for description
+    fig, ax = plt.subplots(1, 1, figsize=(8.5, 9.5))
+    fig.patch.set_facecolor('white')
+    ax.set_facecolor('#f7f7f7')
 
     vmin = gdf[metric_column].min()
     vmax = gdf[metric_column].max()
@@ -106,31 +119,36 @@ def plot_metric_map(gdf, metric_column, output_path, title, description, cmap=DE
     # Determine if data is percentage for label formatting
     is_percentage = metric_column.startswith('perc_')
 
-    # Plot without the default legend
-    gdf.plot(column=metric_column, 
-             ax=ax, 
-             cmap=cmap,
-             linewidth=0.5, 
-             edgecolor='black',
-             legend=False, # Disable default legend
-             missing_kwds={ 
-                 "color": "none",
-                 "edgecolor": "none",
-             },
-             vmin=vmin, 
-             vmax=vmax)
+    plot_kwargs = dict(
+        column=metric_column,
+        ax=ax,
+        cmap=cmap,
+        linewidth=0.2,
+        edgecolor='#404040',
+        legend=False,
+        missing_kwds={
+            "color": "lightgrey",
+            "edgecolor": "none",
+        },
+        vmin=vmin,
+        vmax=vmax,
+    )
+
+    gdf.plot(**plot_kwargs)
+
+    if boundary_gdf is not None and not boundary_gdf.empty:
+        boundary_gdf.boundary.plot(ax=ax, color='black', linewidth=0.35, alpha=0.5)
 
     # Clean up the plot axes
     ax.set_axis_off()
-    ax.set_title(title, fontsize=16, pad=5) # Reduce title padding slightly
+    ax.set_title(title, fontsize=15, pad=8, fontweight='bold')
 
-    # Add description below the title
-    if description:
-        wrapped_desc = textwrap.fill(description, width=90) # Adjust width
-        # Use figure coordinates for positioning relative to the whole figure
-        fig.text(0.5, 0.92, wrapped_desc, # Adjust y position (0.9 = top, 0 = bottom)
-                 ha='center', va='top', 
-                 fontsize=10, color='#555555')
+    # Add description below the title (skip in compact mode)
+    if description and not compact:
+        wrapped_desc = textwrap.fill(description, width=80)
+        fig.text(0.5, 0.92, wrapped_desc,
+                 ha='center', va='top',
+                 fontsize=10, color='#444444')
                  
     # Manually create colorbar with min/max ticks
     norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
@@ -139,20 +157,31 @@ def plot_metric_map(gdf, metric_column, output_path, title, description, cmap=DE
     
     # Create an axes for the colorbar
     divider = make_axes_locatable(ax)
-    cax = divider.append_axes("bottom", size="5%", pad=0.1)
-    
+    cax = divider.append_axes("bottom", size="4%", pad=0.08)
     cb = fig.colorbar(sm, cax=cax, orientation='horizontal')
-    
-    # Set ticks to min and max
-    cb.set_ticks([vmin, vmax])
-    
-    # Format tick labels
-    if is_percentage:
-        cb.set_ticklabels([f"{vmin:.1f}%", f"{vmax:.1f}%"])
+
+    if np.isfinite(vmin) and np.isfinite(vmax) and vmin != vmax:
+        # Use percentage scale for perc_* metrics and OA
+        treat_as_percent = is_percentage or metric_column.lower() == 'oa_2x2'
+        if treat_as_percent:
+            vmin, vmax = 0.0, 1.0
+            norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+            sm.set_norm(norm)
+            ticks = np.linspace(0, 1, 5)
+            cb.set_ticks(ticks)
+            cb.set_ticklabels([f"{int(t*100)}%" for t in ticks])
+        else:
+            ticks = np.linspace(vmin, vmax, 5)
+            cb.set_ticks(ticks)
+            cb.set_ticklabels([f"{tick:.2f}" for tick in ticks])
     else:
-        cb.set_ticklabels([f"{vmin:.2f}", f"{vmax:.2f}"]) # Format decimals
-        
-    cb.set_label(metric_column.replace('_', ' ').title()) # Add label to colorbar
+        cb.set_ticks([])
+
+    cb.ax.tick_params(labelsize=9)
+    label = metric_column.replace('_', ' ').title()
+    if metric_column.lower() == 'oa_2x2':
+        label = 'Agreement (%)'
+    cb.set_label(label, fontsize=10)
 
     # Adjust layout to prevent overlap - may need further tweaking
     # fig.tight_layout(rect=[0, 0.03, 1, 0.93]) # Adjust bottom/top spacing
@@ -186,6 +215,9 @@ def main():
                         help="Resolution (dots per inch) for saving PNG images.")
     parser.add_argument("--filename-prefix", type=str, default="map",
                         help="Prefix for the output map filenames.")
+    parser.add_argument("--eco-boundaries", type=str, default=None,
+                        help="Optional vector file (e.g. GeoPackage) with eco-region boundaries for overlay.")
+    parser.add_argument("--compact", action='store_true', help="Produce compact map (minimal text; percent scaling for OA)")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Enable debug logging.")
 
@@ -215,6 +247,21 @@ def main():
         logger.error(f"Failed to read Parquet file {input_path}: {e}")
         return
 
+    boundary_gdf = None
+    if args.eco_boundaries:
+        boundary_path = Path(args.eco_boundaries)
+        if boundary_path.is_file():
+            try:
+                boundary_gdf = gpd.read_file(boundary_path)
+                if boundary_gdf.crs != gdf.crs:
+                    boundary_gdf = boundary_gdf.to_crs(gdf.crs)
+                logger.info(f"Loaded boundary overlay with {len(boundary_gdf)} features")
+            except Exception as exc:
+                logger.warning(f"Could not read eco-boundaries file {boundary_path}: {exc}")
+                boundary_gdf = None
+        else:
+            logger.warning(f"Eco-boundaries file not found: {boundary_path}")
+
     # Plot each specified metric
     for metric in args.metrics:
         # Add ref_type to the output filename
@@ -223,7 +270,12 @@ def main():
         plot_title = f"Map of {metric.replace('_', ' ').title()}"
         metric_desc = get_metric_description(metric, args.ref_type)
         
-        plot_metric_map(gdf, metric, output_filepath, plot_title, metric_desc, cmap=args.cmap, dpi=args.dpi)
+        # Compact title for OA maps
+        if args.compact and metric.lower() == 'oa_2x2':
+            plot_title = f"Agreement vs {args.ref_type} (%)"
+            metric_desc = None
+        plot_metric_map(gdf, metric, output_filepath, plot_title, metric_desc,
+                        cmap=args.cmap, dpi=args.dpi, boundary_gdf=boundary_gdf, compact=args.compact)
 
     logger.info("Finished generating maps.")
 

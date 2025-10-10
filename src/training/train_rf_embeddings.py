@@ -26,7 +26,7 @@ import logging
 from pathlib import Path
 from collections import defaultdict
 from datetime import datetime
-from typing import List
+from typing import List, Dict
 
 import numpy as np
 import pandas as pd
@@ -88,8 +88,9 @@ def select_topk_features(X: pd.DataFrame, y: pd.Series, k: int) -> List[str]:
     return topk
 
 
-def run_cv(df: pd.DataFrame, feature_cols: list[str], n_splits: int = 5,
-           n_estimators: int = 50, max_depth: int = 30, min_samples_split: int = 30):
+def run_cv(df: pd.DataFrame, feature_cols: List[str], id_columns: List[str],
+           n_splits: int = 5, n_estimators: int = 50,
+           max_depth: int = 30, min_samples_split: int = 30):
     X = df[feature_cols]
     y = df['phenology']
 
@@ -97,6 +98,7 @@ def run_cv(df: pd.DataFrame, feature_cols: list[str], n_splits: int = 5,
 
     results_per_fold = []
     results_per_ecoregion: dict[str, list[dict]] = defaultdict(list)
+    predictions_chunks: List[pd.DataFrame] = []
     for fold, (tr_idx, va_idx) in enumerate(tqdm(folds, desc='CV folds')):
         Xtr, Xva = X.iloc[tr_idx], X.iloc[va_idx]
         ytr, yva = y.iloc[tr_idx], y.iloc[va_idx]
@@ -112,9 +114,27 @@ def run_cv(df: pd.DataFrame, feature_cols: list[str], n_splits: int = 5,
         )
         clf.fit(Xtr, ytr, sample_weight=sample_weights)
         ypred = clf.predict(Xva)
+        yprob = clf.predict_proba(Xva) if hasattr(clf, 'predict_proba') else None
         metrics = compute_metrics(yva, ypred)
         metrics['fold'] = fold + 1
         results_per_fold.append(metrics)
+
+        # Capture per-sample validation outputs for downstream analysis
+        val_indices = df.index[va_idx]
+        meta_cols = id_columns if id_columns else []
+        if meta_cols:
+            val_meta = df.loc[val_indices, meta_cols].copy()
+        else:
+            val_meta = pd.DataFrame(index=val_indices)
+        val_meta = val_meta.reset_index().rename(columns={'index': 'sample_index'})
+        val_meta['fold'] = fold + 1
+        val_meta['y_true'] = yva.values
+        val_meta['y_pred'] = ypred
+        if yprob is not None:
+            class_labels = clf.classes_
+            for col_idx, cls in enumerate(class_labels):
+                val_meta[f'prob_class_{cls}'] = yprob[:, col_idx]
+        predictions_chunks.append(val_meta)
 
         # Per eco-region metrics on validation split
         if 'eco_region' in df.columns:
@@ -135,6 +155,11 @@ def run_cv(df: pd.DataFrame, feature_cols: list[str], n_splits: int = 5,
         'features': feature_cols,
         'metrics_mean': res.mean(numeric_only=True).to_dict(),
         'metrics_std': res.std(numeric_only=True).to_dict(),
+        'metrics_quantiles': {
+            'q25': res.quantile(0.25, numeric_only=True).to_dict(),
+            'median': res.quantile(0.50, numeric_only=True).to_dict(),
+            'q75': res.quantile(0.75, numeric_only=True).to_dict(),
+        },
     }
     # Aggregate eco-region metrics
     eco_rows = []
@@ -145,7 +170,9 @@ def run_cv(df: pd.DataFrame, feature_cols: list[str], n_splits: int = 5,
         avg['n_samples_total'] = int(dfe['n_samples'].sum()) if 'n_samples' in dfe else None
         eco_rows.append(avg)
     eco_df = pd.DataFrame(eco_rows) if eco_rows else pd.DataFrame()
-    return summary, eco_df
+    fold_metrics_df = res.reset_index(drop=True)
+    predictions_df = pd.concat(predictions_chunks, ignore_index=True) if predictions_chunks else pd.DataFrame()
+    return summary, eco_df, fold_metrics_df, predictions_df
 
 
 def main():
@@ -204,9 +231,13 @@ def main():
     rf_max_depth = RF_DEFAULTS['max_depth']
     rf_min_samples_split = RF_DEFAULTS['min_samples_split']
 
-    summary, eco_df = run_cv(
+    id_columns = [col for col in ['tile_id', 'row', 'col', 'x', 'y', 'utm_x', 'utm_y', 'eco_region', 'NomSER', 'weight']
+                  if col in df.columns]
+
+    summary, eco_df, fold_metrics_df, predictions_df = run_cv(
         df,
         feature_cols,
+        id_columns,
         n_splits=args.n_splits,
         n_estimators=rf_n_estimators,
         max_depth=rf_max_depth,
@@ -279,10 +310,28 @@ def main():
         'classes': final_model.classes_.tolist(),
         **summary
     }
-    with open(Path(args.output_dir) / f"metrics_{tag}.json", 'w') as f:
-        json.dump(summary_out, f, indent=2)
-    with open(Path(args.output_dir) / f"features_{tag}.txt", 'w') as f:
+    fold_metrics_records = json.loads(fold_metrics_df.to_json(orient='records'))
+    summary_out['fold_metrics'] = fold_metrics_records
+    features_path = Path(args.output_dir) / f"features_{tag}.txt"
+    with open(features_path, 'w') as f:
         f.write("\n".join(summary['features']))
+    # Save per-fold metrics table
+    fold_metrics_path = Path(args.output_dir) / f"fold_metrics_{tag}.csv"
+    fold_metrics_df.to_csv(fold_metrics_path, index=False)
+    logging.info(f'Saved per-fold metrics to {fold_metrics_path}')
+    # Save validation predictions for downstream analysis
+    predictions_path = None
+    if not predictions_df.empty:
+        predictions_path = Path(args.output_dir) / f"cv_predictions_{tag}.parquet"
+        predictions_df.to_parquet(predictions_path, index=False)
+        logging.info(f'Saved CV predictions to {predictions_path}')
+    summary_out['fold_metrics_file'] = fold_metrics_path.name
+    if predictions_path is not None:
+        summary_out['cv_predictions_file'] = predictions_path.name
+    metrics_path = Path(args.output_dir) / f"metrics_{tag}.json"
+    with open(metrics_path, 'w') as f:
+        json.dump(summary_out, f, indent=2)
+    logging.info(f'Saved overall metrics to {metrics_path}')
     # Save eco-region metrics CSV if available
     if not eco_df.empty:
         eco_df.to_csv(Path(args.output_dir) / f"eco_metrics_{tag}.csv", index=False)

@@ -57,5 +57,55 @@ if [ ${#FEATURES_ARGS[@]} -gt 0 ]; then
 fi
 
 "${CMD[@]}"
+status=$?
+if [ $status -ne 0 ]; then
+  echo "Training script failed with exit code $status"
+  exit $status
+fi
+
+METRICS_FILE="$OUT_DIR/metrics_embeddings_topk_k${K}.json"
+if [ ! -f "$METRICS_FILE" ]; then
+  echo "Metrics file not found at $METRICS_FILE"
+  exit 1
+fi
+
+RUN_TS=$(python - <<'PY'
+import json, sys
+from pathlib import Path
+metrics_path = Path(sys.argv[1])
+data = json.loads(metrics_path.read_text())
+print(data.get("timestamp","unknown").replace(":","").replace(".","-"))
+PY
+"$METRICS_FILE")
+
+if [ "$RUN_TS" = "unknown" ]; then
+  RUN_TS=$(date -u +%Y%m%dT%H%M%SZ)
+fi
+
+ARCHIVE_BASE="$OUT_DIR/archive/embeddings_topk_k${K}"
+RUN_DIR="$ARCHIVE_BASE/$RUN_TS"
+mkdir -p "$RUN_DIR"
+
+copy_if_exists () {
+  local src="$1"
+  if [ -f "$src" ]; then
+    cp "$src" "$RUN_DIR/"
+  fi
+}
+
+copy_if_exists "$METRICS_FILE"
+copy_if_exists "$OUT_DIR/model_metadata_embeddings_topk_k${K}.json"
+copy_if_exists "$OUT_DIR/features_embeddings_topk_k${K}.txt"
+copy_if_exists "$OUT_DIR/fold_metrics_embeddings_topk_k${K}.csv"
+copy_if_exists "$OUT_DIR/cv_predictions_embeddings_topk_k${K}.parquet"
+copy_if_exists "$OUT_DIR/eco_metrics_embeddings_topk_k${K}.csv"
+
+MODEL_FILE=$(ls -1t "$OUT_DIR"/rf_embeddings_embeddings_topk_k${K}_*.joblib 2>/dev/null | head -n1)
+if [ -n "$MODEL_FILE" ]; then
+  cp "$MODEL_FILE" "$RUN_DIR/"
+fi
+
+ln -sfn "$RUN_DIR" "$OUT_DIR/latest_embeddings_topk_k${K}"
 
 echo "Done: features_*, metrics_*, eco_metrics_* saved under $OUT_DIR"
+echo "Archived run under $RUN_DIR"

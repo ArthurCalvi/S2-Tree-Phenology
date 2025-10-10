@@ -7,7 +7,7 @@ France-wide deciduous vs evergreen mapping at 10 m resolution. The project compa
 1. **Set up the environment**: create a Python ≥3.10 env and `pip install -r requirements.txt`. Configure Google Earth Engine (GEE) credentials and install `geefetch` for automated downloads.
 2. **Acquire inputs**: download Sentinel-2 monthly mosaics and AlphaEarth embeddings for France using the YAMLs under `geefetch/configs/` (see [Data Acquisition](#data-acquisition)).
 3. **Build training tables**: run the parquet builders for harmonics and embeddings in `src/sampling/` to extract per-pixel training records.
-4. **Train models**: launch `bash src/training/run_train_rf_selected_features.sh` (harmonics) and the embedding variants (`run_train_rf_embeddings_all.sh`, `run_train_rf_embeddings_topk.sh`). Each job writes `.joblib` weights, metrics, and feature manifests to `results/final_model/`.
+4. **Train models**: launch `bash src/training/run_train_rf_selected_features.sh` (harmonics) and the embedding variants (`run_train_rf_embeddings_all.sh`, `run_train_rf_embeddings_topk.sh`). Harmonic artefacts land in `results/final_model/`, while embedding models are saved under `results/final_model_embeddings/`.
 5. **Run national inference**: use the feature or embedding inference CLIs (`src/inference/inference_rf_on_tiles.py`, `src/inference/inference_rf_embeddings.py`) from Jean Zay job arrays to tile through France.
 6. **Evaluate & report**: QA scripts in `qa/jobs/` and analysis notebooks under `src/analysis/` reproduce the figures/statistics referenced in the article.
 
@@ -103,7 +103,7 @@ python src/sampling/dataset_preparation_embedding.py \
   --tiles_path results/datasets/tiles_2_5_km_final.parquet \
   --dataset_path results/datasets/final_dataset.parquet \
   --features_vrt /path/to/alphaearth_features.vrt \
-  --output_dir data/training/embeddings
+ --output_dir data/training/embeddings
 ```
 
 2. Convert the tiles to a parquet training table:
@@ -116,6 +116,16 @@ python src/dataset_creation/convert_embeddings_to_dataframe.py \
 ```
 
 The parquet includes columns `embedding_0`–`embedding_63`, categorical labels, eco-region, and optional weights.
+
+3. Harmonise eco-region representation with weights (required for calibration scripts):
+
+```bash
+python src/dataset_creation/add_weights_embeddings.py \
+  --input results/datasets/training_datasets_pixels_embedding.parquet \
+  --output results/datasets/training_datasets_pixels_embedding.parquet
+```
+
+This adds a `weight` column matching the harmonic dataset's eco-region weighting scheme.
 
 ## Train Random Forest Baselines
 
@@ -144,7 +154,7 @@ Top-K (default K=14, using pre-computed feature lists when available):
 bash src/training/run_train_rf_embeddings_topk.sh
 ```
 
-Both commands call `src/training/train_rf_embeddings.py`, which now serialises the fitted estimator and metadata:
+Both commands call `src/training/train_rf_embeddings.py`, which serialises the fitted estimator and metadata. Outputs are written to `results/final_model_embeddings/`:
 - `rf_embeddings_<tag>_<timestamp>.joblib`
 - `model_metadata_<tag>.json` (lists features, classes, RF hyperparameters)
 - `features_<tag>.txt`
@@ -174,9 +184,25 @@ Use the dedicated CLI to score embedding tiles:
 python src/inference/inference_rf_embeddings.py \
   --input-dir /path/to/embedding_tiles \
   --output-dir /path/to/output_probs \
-  --model results/final_model/rf_embeddings_embeddings_topk_k14_<timestamp>.joblib \
-  --features-file results/final_model/features_embeddings_topk_k14.txt \
-  --block-size 2048 --save-classes
+  --model results/final_model_embeddings/rf_embeddings_embeddings_topk_k14_<timestamp>.joblib \
+  --features-file results/feature_selection_embeddings/features_embeddings_topk_k14.txt \
+  --block-size 1024 --save-classes
+```
+
+Notes:
+- If tiles were exported by Geefetch as UInt16, the script automatically rescales back to float using the documented min/max (defaults `--embedding-min -1 --embedding-max 1`).
+- Bands are matched by description (e.g., `A46`) to the requested features (`embedding_46`). Missing bands are filled with `--missing-fill` or cause an error with `--fail-on-missing`.
+- Processing streams in 1024×1024 windows by default to limit memory.
+
+Single-tile sanity check:
+
+```bash
+python src/inference/run_single_rf_embedding_tile.py \
+  --tile-path results/geefetch_tests/alphaearth_embeddings/2023/alphaearth_embeddings/alphaearth_embeddings_EPSG2154_1024000_6348800.tif \
+  --output-dir results/inference_embeddings_debug \
+  --model results/final_model_embeddings/rf_embeddings_embeddings_topk_k14_<timestamp>.joblib \
+  --features-file results/feature_selection_embeddings/features_embeddings_topk_k14.txt \
+  --block-size 1024 --save-classes
 ```
 
 For Jean Zay batch execution, adapt and submit the array job:
@@ -184,6 +210,80 @@ For Jean Zay batch execution, adapt and submit the array job:
 ```bash
 sbatch src/inference/run_inference_rf_embeddings.sh
 ```
+
+## Analysis CLI Shortcuts
+
+- **Spatial coherence (edge/patch density for embeddings vs harmonics)**
+
+  ```bash
+  python src/analysis/compute_coherence_metrics.py \
+    --tiles results/datasets/tiles_2_5_km_final.parquet \
+    --embedding results/postprocessing/embeddings/embedding_classes_masked.tif \
+    --harmonic /Users/arthurcalvi/Data/phenology/forest_classification_harmonic.tif \
+    --output-parquet results/analysis_coherence/coherence_metrics.parquet \
+    --summary-csv results/analysis_coherence/coherence_summary.csv
+  ```
+
+- **Calibration & threshold sensitivity (Random Forest, default hyper-parameters `n_estimators=50`, `max_depth=30`, `min_samples_split=30`, `min_samples_leaf=15`, `class_weight="balanced"`)**
+
+  Embedding Top-14 model:
+
+  ```bash
+  python src/analysis/compute_calibration_metrics.py \
+    --dataset results/datasets/training_datasets_pixels_embedding.parquet \
+    --features-file results/feature_selection_embeddings/features_embeddings_topk_k14.txt \
+    --output-dir results/analysis_calibration/embeddings \
+    --model-type embeddings
+  ```
+
+  Harmonic 14-feature model:
+
+  ```bash
+  python src/analysis/compute_calibration_metrics.py \
+    --dataset results/datasets/training_datasets_pixels.parquet \
+    --features-file results/feature_selection_harmonic/features_harmonic_topk_k14.txt \
+    --output-dir results/analysis_calibration/harmonic \
+    --model-type harmonic
+  ```
+
+- **Reliability plot (Emb vs Harm)**
+
+  ```bash
+  python src/analysis/plot_calibration_reliability.py \
+    --embeddings-dir results/analysis_calibration/embeddings \
+    --harmonic-dir results/analysis_calibration/harmonic \
+    --output results/analysis_calibration/reliability_comparison.png
+  ```
+
+- **Eco-region delta table (accuracy & macro-F1)**
+
+  ```bash
+  python src/analysis/compute_eco_region_deltas.py \
+    --embedding-metrics results/final_model/eco_metrics_embeddings_topk_k14.csv \
+    --harmonic-metrics results/final_model/phenology_eco_metrics_selected_features.csv \
+    --output results/analysis_coherence/eco_region_delta_metrics.csv
+  ```
+
+- **Product comparisons vs DLT / BD-Forêt**
+
+  ```bash
+  python src/comparison/compare_maps.py \
+    --custom-map results/postprocessing/embeddings/embedding_classes_masked.tif \
+    --ref-map /Users/arthurcalvi/Data/species/DLT_2018_010m_fr_03035_v020/DLT_Dominant_Leaf_Type_France.tif \
+    --ref-type DLT \
+    --eco-map /Users/arthurcalvi/Data/eco-regions/France/greco.tif \
+    --output-dir results/comparison \
+    --output-filename embeddings_vs_dlt \
+    --block-size 1024
+
+  python src/comparison/aggregate_comparison_metrics.py \
+    --input results/comparison/embeddings_vs_dlt_vs_DLT.parquet \
+    --eco-map /Users/arthurcalvi/Data/eco-regions/France/greco.tif \
+    --ref-type DLT \
+    --output results/comparison/embeddings_vs_dlt_by_region.csv
+  ```
+
+  Repeat with BD-Forêt (`--ref-type BDForet`, reference path to BD-Forêt raster) and with the harmonic map as the `--custom-map` to obtain comparable Parquet + CSV summaries for all datasets.
 
 The script validates paths, sets optional `--rf-n-jobs`, and writes probability rasters (uint8 0–255) plus an optional class map.
 

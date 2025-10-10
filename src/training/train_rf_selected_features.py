@@ -19,6 +19,7 @@ import joblib
 import sys
 from pathlib import Path
 from tabulate import tabulate
+from typing import List, Optional
 
 # Add the project root directory to the Python path
 project_root = str(Path(__file__).resolve().parent.parent.parent)
@@ -75,11 +76,12 @@ MIN_SAMPLES_SPLIT = 30 # Example starting value
 MIN_SAMPLES_LEAF = MIN_SAMPLES_SPLIT // 2
 # --- Core Training Functions ---
 
-def evaluate_features_cv(df, features, target='phenology', n_splits=5):
+def evaluate_features_cv(df, features, target='phenology', n_splits=5, id_columns: Optional[List[str]] = None):
     """
     Evaluate the given features using cross-validation.
     Returns performance metrics averaged over folds and aggregated confusion matrix.
     """
+    id_columns = id_columns or []
     logger.info(f"Starting cross-validation evaluation for {len(features)} features")
 
     # Prepare data
@@ -95,6 +97,7 @@ def evaluate_features_cv(df, features, target='phenology', n_splits=5):
     all_true = []
     all_pred = []
 
+    predictions_chunks: List[pd.DataFrame] = []
     # Perform cross-validation
     for fold, (train_idx, val_idx) in enumerate(tqdm(fold_splits, desc="Cross-validation folds")):
         # logger.info(f"=== Fold {fold+1}/{n_splits} ===") # Less verbose logging
@@ -119,10 +122,27 @@ def evaluate_features_cv(df, features, target='phenology', n_splits=5):
 
         # Make predictions
         y_pred = model.predict(X_val)
+        y_proba = model.predict_proba(X_val) if hasattr(model, 'predict_proba') else None
 
         # Store predictions for overall confusion matrix
         all_true.extend(y_val)
         all_pred.extend(y_pred)
+
+        # Collect per-sample validation predictions for downstream analysis
+        val_indices = df.index[val_idx]
+        if id_columns:
+            val_meta = df.loc[val_indices, id_columns].copy()
+        else:
+            val_meta = pd.DataFrame(index=val_indices)
+        val_meta = val_meta.reset_index().rename(columns={'index': 'sample_index'})
+        val_meta['fold'] = fold + 1
+        val_meta['y_true'] = y_val.values
+        val_meta['y_pred'] = y_pred
+        if y_proba is not None:
+            class_labels = model.classes_
+            for prob_idx, cls in enumerate(class_labels):
+                val_meta[f'prob_class_{cls}'] = y_proba[:, prob_idx]
+        predictions_chunks.append(val_meta)
 
         # Compute overall metrics for this fold using the updated compute_metrics
         overall_metrics = compute_metrics(y_val, y_pred)
@@ -151,6 +171,11 @@ def evaluate_features_cv(df, features, target='phenology', n_splits=5):
 
     # Aggregate results across folds
     results_df = pd.DataFrame(results_per_fold)
+    quantiles = {
+        'q25': results_df.quantile(0.25, numeric_only=True).to_dict(),
+        'median': results_df.quantile(0.50, numeric_only=True).to_dict(),
+        'q75': results_df.quantile(0.75, numeric_only=True).to_dict(),
+    }
     
     # Define metrics to average
     metrics_to_average = [
@@ -165,6 +190,7 @@ def evaluate_features_cv(df, features, target='phenology', n_splits=5):
     for metric in metrics_to_average:
         overall_metrics_summary[f'mean_{metric}'] = results_df[metric].mean()
         overall_metrics_summary[f'std_{metric}'] = results_df[metric].std()
+    overall_metrics_summary['quantiles'] = quantiles
 
     logger.info("=== Overall CV Results (Mean ± Std across folds) ===")
     # Display key averaged metrics
@@ -218,8 +244,11 @@ def evaluate_features_cv(df, features, target='phenology', n_splits=5):
     overall_metrics_summary['aggregated_fn'] = int(fn)
     overall_metrics_summary['aggregated_tp'] = int(tp)
 
+    fold_metrics_df = results_df.reset_index(drop=True)
+    predictions_df = pd.concat(predictions_chunks, ignore_index=True) if predictions_chunks else pd.DataFrame()
+
     # Return the detailed summary dictionary and the eco-region dataframe
-    return overall_metrics_summary, eco_results_df, aggregated_cm_array
+    return overall_metrics_summary, eco_results_df, aggregated_cm_array, fold_metrics_df, predictions_df
 
 
 def train_final_model(df, features, target='phenology'):
@@ -380,10 +409,13 @@ def main():
     base_model_name = args.model_name.replace('.joblib', '')
     dated_model_name = f"{base_model_name}_{current_date}.joblib"
     
+    id_columns = [col for col in ['tile_id', 'row', 'col', 'x', 'y', 'utm_x', 'utm_y', 'eco_region', 'NomSER', 'weight']
+                  if col in df.columns]
+
     # --- Cross-Validation Evaluation ---
     start_time_cv = time.time()
-    overall_metrics_summary, eco_results_df, _ = evaluate_features_cv(
-        df, selected_features, target='phenology', n_splits=args.n_splits
+    overall_metrics_summary, eco_results_df, _, fold_metrics_df, predictions_df = evaluate_features_cv(
+        df, selected_features, target='phenology', n_splits=args.n_splits, id_columns=id_columns
     )
     cv_time = time.time() - start_time_cv
     logger.info(f"Cross-validation evaluation completed in {cv_time:.2f} seconds")
@@ -403,6 +435,17 @@ def main():
     overall_metrics_summary['final_model_training_time_seconds'] = round(train_time, 2)
     overall_metrics_summary['selected_features'] = selected_features # Record features used
     overall_metrics_summary['model_parameters'] = model_params
+    timestamp_utc = datetime.datetime.utcnow().isoformat() + 'Z'
+    overall_metrics_summary['timestamp'] = timestamp_utc
+    overall_metrics_summary['dataset_path'] = args.dataset_path
+    overall_metrics_summary['n_splits'] = args.n_splits
+    overall_metrics_summary['features'] = selected_features
+    overall_metrics_summary['model_file'] = dated_model_name
+    overall_metrics_summary['config_file'] = f"{base_model_name}_{current_date}_config.json"
+    overall_metrics_summary['metrics_file'] = args.metrics_name
+    overall_metrics_summary['eco_metrics_file'] = args.eco_metrics_name
+    fold_metrics_records = json.loads(fold_metrics_df.to_json(orient='records'))
+    overall_metrics_summary['fold_metrics'] = fold_metrics_records
 
     # --- Save Outputs ---
 
@@ -437,6 +480,29 @@ def main():
         logger.info(f"Model config saved successfully to: {config_path}")
     except Exception as e:
         logger.error(f"Error saving model config to {config_path}: {e}")
+
+    # Persist per-fold metrics table
+    fold_metrics_filename = f"{base_model_name}_{current_date}_fold_metrics.csv"
+    fold_metrics_path = os.path.join(args.output_dir, fold_metrics_filename)
+    try:
+        fold_metrics_df.to_csv(fold_metrics_path, index=False, float_format='%.6f')
+        logger.info(f"Fold metrics saved successfully to: {fold_metrics_path}")
+        overall_metrics_summary['fold_metrics_file'] = fold_metrics_filename
+    except Exception as e:
+        logger.error(f"Error saving fold metrics to {fold_metrics_path}: {e}")
+
+    # Persist CV predictions per sample for downstream analysis
+    cv_predictions_filename = f"{base_model_name}_{current_date}_cv_predictions.parquet"
+    cv_predictions_path = os.path.join(args.output_dir, cv_predictions_filename)
+    if not predictions_df.empty:
+        try:
+            predictions_df.to_parquet(cv_predictions_path, index=False)
+            logger.info(f"CV predictions saved successfully to: {cv_predictions_path}")
+            overall_metrics_summary['cv_predictions_file'] = cv_predictions_filename
+        except Exception as e:
+            logger.error(f"Error saving CV predictions to {cv_predictions_path}: {e}")
+    else:
+        logger.warning("No CV predictions were captured; skipping parquet export.")
 
     # Save overall metrics to JSON
     metrics_path = os.path.join(args.output_dir, args.metrics_name)
