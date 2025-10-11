@@ -29,7 +29,7 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import joblib
 import numpy as np
@@ -57,19 +57,22 @@ def parse_args() -> argparse.Namespace:
         help="Path to embeddings parquet to evaluate (must contain embedding_* columns and phenology labels).",
     )
     parser.add_argument(
+        "--model_dir",
+        help="Directory containing latest embeddings artefacts (e.g., results/final_model/latest_embeddings_topk_k14). "
+             "If provided, model/features/manifest paths are auto-detected.",
+    )
+    parser.add_argument(
         "--model_path",
-        required=True,
-        help="Path to the trained RandomForest joblib file.",
+        help="Path to the trained RandomForest joblib file (mutually exclusive with --model_dir).",
     )
     parser.add_argument(
         "--features_file",
-        required=True,
-        help="Path to text file listing embedding features (one per line) to use for inference.",
+        help="Path to text file listing embedding features (one per line) to use for inference (mutually exclusive with --model_dir).",
     )
     parser.add_argument(
         "--fold_manifest",
-        required=True,
-        help="Parquet generated during training containing columns tile_id,row,col,fold (e.g., cv_predictions_*.parquet).",
+        help="Parquet generated during training containing columns tile_id,row,col,fold (e.g., cv_predictions_*.parquet). "
+             "(Mutually exclusive with --model_dir).",
     )
     parser.add_argument(
         "--output_dir",
@@ -122,6 +125,28 @@ def ensure_columns(df: pd.DataFrame, columns: List[str], context: str) -> None:
         raise KeyError(f"{context} missing required columns: {missing}")
 
 
+def resolve_artifacts_from_dir(model_dir: Path) -> Tuple[Path, Path, Path]:
+    if not model_dir.exists():
+        raise FileNotFoundError(f"Model directory not found: {model_dir}")
+
+    def pick_latest(pattern: str) -> Path:
+        candidates = sorted(model_dir.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
+        if not candidates:
+            raise FileNotFoundError(f"No files matching '{pattern}' in {model_dir}")
+        return candidates[0]
+
+    model_path = pick_latest("*.joblib")
+    features_file = pick_latest("features_*.txt")
+    manifest = pick_latest("cv_predictions_*.parquet")
+
+    logging.info("Auto-detected artefacts in %s:", model_dir)
+    logging.info("  model:    %s", model_path.name)
+    logging.info("  features: %s", features_file.name)
+    logging.info("  manifest: %s", manifest.name)
+
+    return model_path, features_file, manifest
+
+
 def metrics_dict_to_row(metrics: dict, extra: Optional[dict] = None) -> dict:
     """Convert metrics dict (output of compute_metrics) to JSON-serialisable row."""
     row = {k: (float(v) if isinstance(v, (np.floating, np.float64, np.float32)) else v)
@@ -150,9 +175,19 @@ def main() -> None:
     setup_logging(args.loglevel)
 
     dataset_path = Path(args.dataset_path)
-    model_path = Path(args.model_path)
-    features_path = Path(args.features_file)
-    manifest_path = Path(args.fold_manifest)
+    model_dir = Path(args.model_dir) if args.model_dir else None
+
+    if model_dir:
+        if any([args.model_path, args.features_file, args.fold_manifest]):
+            raise SystemExit("When using --model_dir, do not supply --model_path/--features_file/--fold_manifest.")
+        model_path, features_path, manifest_path = resolve_artifacts_from_dir(model_dir)
+    else:
+        if not (args.model_path and args.features_file and args.fold_manifest):
+            raise SystemExit("Provide either --model_dir or all of --model_path/--features_file/--fold_manifest.")
+        model_path = Path(args.model_path)
+        features_path = Path(args.features_file)
+        manifest_path = Path(args.fold_manifest)
+
     output_dir = Path(args.output_dir)
 
     LOGGER.info("Loading dataset from %s", dataset_path)
@@ -186,7 +221,7 @@ def main() -> None:
 
     LOGGER.info("Running inference (predict_proba)")
     probas = model.predict_proba(X)
-    classes = list(model.classes_)
+    classes = [int(c) for c in model.classes_]
     prob_df = pd.DataFrame(
         probas,
         columns=[f"prob_class_{cls}" for cls in classes],
@@ -243,7 +278,7 @@ def main() -> None:
 
     LOGGER.info("Writing predictions parquet")
     preds_path = output_dir / f"predictions_{tag}.parquet"
-    merged.to_parquet(preds_path, index=False)
+    merged.to_parquet(preds_path, index=False, coerce_timestamps="ms")
 
     LOGGER.info("Writing fold metrics CSV")
     fold_metrics_path = output_dir / f"fold_metrics_{tag}.csv"
@@ -261,6 +296,13 @@ def main() -> None:
     tile_metrics_df.to_parquet(tile_metrics_path, index=False)
 
     LOGGER.info("Creating summary JSON")
+    def _jsonify(val):
+        if isinstance(val, (np.integer, np.int64, np.int32, np.uint8, np.uint16)):
+            return int(val)
+        if isinstance(val, (np.floating, np.float32, np.float64)):
+            return float(val)
+        return val
+
     summary = {
         "timestamp": pd.Timestamp.utcnow().isoformat() + "Z",
         "dataset_path": str(dataset_path),
@@ -270,11 +312,11 @@ def main() -> None:
         "tag": tag,
         "n_samples": int(len(merged)),
         "class_labels": classes,
-        "overall_metrics": overall_row,
-        "fold_metrics_mean": {k: float(v) for k, v in fold_metrics_mean.items()},
-        "fold_metrics_std": {k: float(v) for k, v in fold_metrics_std.items()},
+        "overall_metrics": {k: _jsonify(v) for k, v in overall_row.items()},
+        "fold_metrics_mean": {k: _jsonify(v) for k, v in fold_metrics_mean.items()},
+        "fold_metrics_std": {k: _jsonify(v) for k, v in fold_metrics_std.items()},
         "fold_metrics_quantiles": {
-            q: {k: float(v) for k, v in vals.items()}
+            q: {k: _jsonify(v) for k, v in vals.items()}
             for q, vals in fold_metrics_quantiles.items()
         },
         "fold_metrics_file": fold_metrics_path.name,
