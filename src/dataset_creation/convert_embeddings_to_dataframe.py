@@ -221,7 +221,9 @@ def main():
             else:
                 rows.append(df)
 
-    if not rows:
+    has_rows_in_memory = bool(rows)
+    has_rows_written = writer is not None and after_total > 0
+    if not has_rows_in_memory and not has_rows_written:
         raise SystemExit("No valid pixels extracted.")
 
     # Optional merge with baseline to import weights and then drop rows without matches

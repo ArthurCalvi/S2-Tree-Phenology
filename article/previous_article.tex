@@ -1,0 +1,317 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Frontiers LaTeX template – v2 (2025-04-10)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\documentclass[utf8]{FrontiersinHarvard}
+\usepackage{url,hyperref,lineno,microtype,subcaption}
+\usepackage{natbib}
+\usepackage[onehalfspacing]{setspace}
+\usepackage{float}
+\usepackage{multirow}
+\linenumbers
+
+\def\keyFont{\fontsize{8}{11}\helveticabold}
+\def\firstAuthorLast{Calvi {et~al.}}
+\def\Authors{Arthur Calvi\,$^{1,*}$, Sarah Brood\,$^{2}$, Co-Author\,$^{1,2}$, OpenAI Codex\,$^{3}$, Anthropic Claude Code\,$^{4}$}
+\def\Address{$^{1}$ Laboratory X, Institute X, Department X, City X, Country X\\
+$^{2}$ Laboratory Y, Institute Y, Department Y, City Y, Country Y\\
+$^{3}$ OpenAI, San Francisco, CA, USA\\
+$^{4}$ Anthropic, San Francisco, CA, USA}
+\def\corrAuthor{Arthur Calvi}
+\def\corrEmail{email@uni.edu}
+
+\begin{document}
+\onecolumn
+\firstpage{1}
+
+\title[France tree-phenology map]{France-wide 10\,m Deciduous–Evergreen Mapping: AlphaEarth Embeddings vs Harmonics}
+%je mentionnerai le capteur dans le titre Mapping accuracy for evergreen and deciduous forests using AlphaEarth embeddings vs. sentinel 2 time series. ou Comparing model performances with AlphaEarth embeddings vs. sentinel 2 time series for classifying evergreen and decduous forests pas besoin de mettre ‘in France’
+
+\author[\firstAuthorLast]{\Authors}
+\address{}
+\correspondance{}
+
+\maketitle
+
+\begin{abstract}
+We present an operational route to annua (#a model to map … ), 10\,m deciduous–evergreen mapping for France. We compare two feature families under identical data and evaluation: (i) AlphaEarth foundation‑model embeddings (Emb‑Top14: 14 dimensions selected within folds from the 64‑band annual vectors) and (ii) (#features extracted from time series of Sentinel 2 images fitted with harmonic curves) physics‑informed harmonic descriptors (Harm‑Top14: 14 interpretable indices summarizing seasonal amplitude, timing, offset, and residuals). Using eco‑region–balanced (#rephrase by explaining what is an ecoregion, can be «  the features and weights have been balanced over different forest regions « ) folds and weights across 14.1M forest pixels, embeddings deliver modest, consistent gains (#gains of accuracy + cite the metrics)over harmonics (92.4\% vs 90.4\% OA) together with smoother, more coherent maps. Calibration is strong for both (ECE 0.033 vs 0.059), enabling stable thresholding (#je ne comprends pas cette phrase, la reécrre stp). Agreement with legacy products (DLT, BD Forêt) (# full names and refs) is comparable nationally while revealing expected regional divergences where annual phenology departs from static compilations. Because embeddings are pre‑computed and accessible in Earth Engine, labels—not features—are the practical bottleneck, making a country‑scale, annually updated phenology layer (#it is map of evergreen / deciduous forest types) achievable for downstream disturbance monitoring (#forest type is not necessarily for disturbance monitoring, can remove this part).
+
+\keyFont{\section{Keywords:} deciduous-evergreen, AlphaEarth embeddings, harmonic analysis, Random Forest, phenology}
+\end{abstract}
+
+\section{Introduction}
+
+% Teaser figure pinned within Introduction
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/sat_emb_classes.png}
+    \caption{South‑east of France: (left) true‑color satellite view; (middle) learned embedding visualization with AlphaEarth dimensions A46, A18, A05 mapped to RGB; (right) classification probabilities where more orange indicates deciduous and more blue indicates evergreen. This teaser illustrates how embeddings accentuate phenological structure that drives the downstream classifier.}
+    \label{fig:teaser_sat_emb_class}
+\end{figure}
+
+An annually refreshed deciduous–evergreen layer (#forest classification) at 10\,m would help stabilize forest disturbance detection (#be more general, help to monitor forest changes, in particular after disturbances when a forest type can change). Existing continental products illustrate the gap: Copernicus DLT classifies broadleaf versus conifer but cannot separate deciduous from evergreen broadleaf \citep{EU2024a} (#here explain in very few words what they use eg sentinel satellites); BD Forêt V2 offers detailed classes yet remains static (2007–2018) \citep{IGN2024}. Disturbance algorithms (CCDC, BEAST, BFAST, LandTrendr) are sensitive to phenological swings (#periodicity and abrupt changes) \citep{Zhu2014,Zhao2019,Verbesselt2010a,Verbesselt2010b,Kennedy2010,Kennedy2018} (#accurate ?); a current phenology prior would let analysts tighten thresholds for deciduous pixels (high natural variance) and relax them for evergreen stands (low variance), reducing false alarms while highlighting genuine change.
+
+Foundation models provide a practical way to build such priors. Recent efforts (SatMAE, Prithvi-EO, AlphaEarth) train on multi-temporal satellite imagery and transfer well to downstream tasks \citep{Cong2022,Szwarcman2024PrithviEO2,AlphaEarth2025} (#explain main satellite and other data used). AlphaEarth, in particular, publishes annual 64-dimensional embeddings at 10\,m. Because these vectors are precomputed and temporally consistent, practitioners can treat them as a ready-made feature stack; the learned spatial context makes them well suited to simple per-pixel classifiers, shifting the bottleneck from feature engineering to assembling reliable labels.
+
+Against this backdrop we compare two compact feature sets under identical data and evaluation: Emb-Top14 (fourteen dimensions selected within cross-validation folds from the 64D AlphaEarth vectors) and Harm-Top14 (fourteen (#how many bands or indices from the satellite) physics-informed descriptors summarizing seasonal amplitude, timing, offset, and residual variance of Sentinel-2 indices). We ask whether embeddings can compete with carefully engineered harmonics while simplifying the pipeline, whether embedding maps remain smoother without additional filtering (#why is smoother derirable for a good classification ?), and whether the resulting confidence scores are stable enough for practical thresholding (#last part is jargon, please rewrite. Better have one sentence per question).
+
+Our processing chain is intentionally simple: tile mainland France into 2.5\,km cells; assemble 14.1M labeled forest pixels with eco-region tags and area-aware weights; compute Emb-Top14 or Harm-Top14 features; train identical Random Forests with eco-region–stratified (#was not explained), tile-grouped cross-validation; and evaluate accuracy, spatial coherence, and confidence, including comparisons to DLT and BD Forêt restricted to forest pixels. (#rewrite and break the sentence into a classical structure. The model chosen for classification, data preparation, training and cross validation + then a new sentence for the comparison with other products)
+
+Our contributions are threefold: (i) a France-wide, annual 10\,m phenology map (#in the whole paper replace « phenology’ » by evergreen-deciduous classification ( you can use PC for phenology classification in case the same word is used many times) trained and evaluated with eco-region–balanced folds and weights (#unclear to readers); (ii) a controlled comparison of Emb-Top14 and Harm-Top14 under identical data and Random Forests (#with the same train and test data), including spatial-coherence and confidence analyses; and (iii) a national comparison with DLT and BD Forêt, with eco-region breakdowns that explain where annual phenology diverges from static products (#our annual PC maps).
+
+Embedding-based approaches have already shown competitive performance across EO tasks (#applications) \citep{Cong2022,Xie2024FoundationEffective}, and pre-trained representations are increasingly used for rapid environmental monitoring (#can you cite here some concrete aplications)\citep{Szwarcman2024PrithviEO2}. Dataset design also matters: phenology-informed, globally uniform pretraining improves ecological transfer (#what does the last word means ?) \citep{Plekhanova2025SSL4Eco}. Nevertheless, questions remain about interpretability and cross-regional reliability \citep{Xie2024FoundationEffective}. By benchmarking embeddings against explicit harmonics under matched conditions (#with the same clasification model set up), we quantify the trade-offs between accuracy, interpretability, and operational feasibility (#not sure this is done in the paper, but see … 
+
+quantiying interpretabilty is diffrent from comparing two models ).
+
+Recent studies reinforce the motivation. Houriez et al. extend LANDFIRE (#is it a land cover ? ) vegetation types into Canada with simple classifiers on AlphaEarth features \citep{Houriez2025AEFDataGen}; a Siamese U-Net on AlphaEarth imagery reports strong burned-area (#was used for mapig burned area ? ) mapping across continents \citep{Seydi2025AlphaEarthBurnedArea}; and national phenology mapping efforts (#is it land cover maps or phenology ?) continue to emphasize temporal descriptors for evergreen discrimination \citep{Inglada2017,Li2023,Low2020,Bolton2020}. Our comparison situates harmonic analysis and AlphaEarth embeddings within this landscape: harmonics provide interpretable seasonal signals useful for scientific inquiry, while embeddings offer scalable, precomputed features that agencies can deploy immediately.
+
+\section{Data and Methods}
+
+\subsection{Dataset composition and sampling}
+We assemble (#constructed) a national supervised dataset of 14.1 million forest pixels by tiling mainland France into non-overlapping 2.5\,km\,$\times$\,2.5\,km units and sampling within these tiles across the eleven eco-regions (#give ref and exlain what is an eco region) (Figure~\ref{fig:training_tiles}). Labels indicate phenology class (deciduous vs evergreen) consolidated from national forest sources (e.g., inventory plots and mapped stands) (#is it the BD forets or other datasets ? if so please explain clearly what are the labels and gve refs). Sampling is approximately balanced by eco-region using area-aware weights so that large Atlantic regions do not dominate smaller Mediterranean or Alpine regions. All models use the same sampled pixels, eco-region labels, and weights to ensure a fair comparison (#number of labels per eco-region).
+
+\subsection{Features}
+\subsubsection{Harmonic features (on spectral indices)} %derived from Sentinel 2
+We derive four vegetation indices from Sentinel-2 time series at 10\,m (#please explain which data level is used the data source and  atm corrections applied ): NDVI and EVI (canopy greenness/photosynthetic activity), NBR (moisture/char and structural change), and CRSWIR (vegetation water content and woody structure) (#justugy why they are chosen for previous LC classifications and give basic rfs ). After QA60/SCL cloud–snow masking and gap-filling on 10-day composites (#what is the gap fillign used, it is usually a non trivial task, ref in geefecth), each pixel's annual index (#it is not annual but ? weekly ? monthly ?) signal \(x(t)\) is approximated by
+\begin{equation}
+  x(t) \approx C + \sum_{k=1}^{2} \big[ a_k \cos\!\big( \tfrac{2\pi k}{T} t \big) + b_k \sin\!\big( \tfrac{2\pi k}{T} t \big) \big],
+\end{equation}
+with period \(T=1\) year. We summarize the fit with 5 interpretable descriptors: offset \(C\), first- and second-harmonic amplitudes \(A_k = \sqrt{a_k^2 + b_k^2}\), phases \(\varphi_k = \operatorname{atan2}(b_k, a_k)\) (reported via sine/cosine components for robustness), and residual variance. From these candidates we retain a compact set of 14 descriptors (“Harmonic-14”) (#please explain what are the 14 dimensions ?
+
+from the harmonics x indices, if each harmonics has 5 parameters and you have 4 indices, this would be 20 parameters not 14 ?) that balances accuracy and simplicity (Supplement S1–S2). Using indices ties the features to physical vegetation processes—seasonal vigor, timing, and baseline moisture/structure—useful for distinguishing deciduous and evergreen behavior.
+
+\subsubsection{AlphaEarth embeddings (what they represent and how they are obtained)}
+Embeddings are compact numerical summaries of how a place looks and changes through the year—an annual “fingerprint” per 10\,m pixel. AlphaEarth provides a 64‑dimensional, unit‑normalized vector for each pixel and year, reported to be learned from multi‑sensor imagery (e.g., Sentinel‑2/‑1, Landsat) and designed to be temporally consistent across years \citep{AlphaEarth2025} (#they also use topograhy, climate ?). In practice, the vectors behave like generic, reusable features: several dimensions align with physically meaningful signals (seasonal vigor and timing for NDVI/EVI; moisture/structure for NBR/CRSWIR) (#how do we know that from the embeddings ?), and the representations appear to retain local spatial context. Our similarity analysis supports this view: specific dimensions correlate with first‑harmonic NDVI/NBR amplitudes and with CRSWIR‑related offsets, while overall negative linear $R^2$ indicates that embeddings also capture information beyond explicit harmonic terms (#? wher is this done, normally in a paper you describe the data alone, 
+and then if you make some intermdiate analysis, put it later).
+
+\subsection{Training (including feature selection)}
+We compare two compact, interpretable feature sets under identical data splits and regional weights: Harmonic‑14 and Emb‑14 (a 14‑dimension subset of the 64D vectors selected within training folds). We train a Random Forest classifier for its robustness and effectiveness on remote-sensing features, tuning hyperparameters on the training folds. To account for the larger share of deciduous pixels, we balance class frequencies during training.
+
+\subsection{Evaluation protocol}
+To avoid spatial information leakage, we evaluate with five-fold cross-validation where the 2.5\,km tiles are the grouping units: all pixels from a tile belong to exactly one fold. This prevents “seeing” neighboring pixels of a held‑out tile during training, which would otherwise inflate performance due to spatial autocorrelation. Folds are stratified by eco-region and we weight samples so each eco-region contributes proportionally to its forested area. We report overall accuracy (OA) and macro/weighted F1 at the fold level, aggregate nationally with eco-region weights, and retain out-of-fold probabilities to confirm that confidence thresholds can be adjusted without destabilizing performance—important for operational alert tuning even when using Random Forests.
+
+\subsection{Embedding–harmonic similarity analysis (setup)}
+We assess what embeddings encode relative to explicit phenology by linearly projecting each selected embedding dimension onto the full set of harmonic descriptors using standardized ridge regression. We evaluate out‑of‑sample, area‑weighted \(R^2\) by eco‑region and tile, and record the most correlated harmonic groups and normalized coefficients. Extended diagnostics appear in Supplement S3.
+
+\subsection{Comparison with existing products} #forest type maps
+We compare our annual phenology maps against Copernicus DLT (broadleaved vs coniferous)(#this is different from your claassification and must be explained, as it s comparing apples and oranges ) and BD Forêt V2 (deciduous vs evergreen). Comparisons are restricted to pixels mapped as forest and summarized at eco‑region and national scales; additional details and maps are provided in Supplement S9.
+\textbf{Forest mask} — Final maps are constrained to the national forest extent using the IGN BD Forêt Beta mask \citep{IGN2024mask}, ensuring evaluation focuses on forested areas at 10\,m resolution.
+
+\section{Results}
+We organize results to answer the three expectations (#questions ? ) outlined in the Introduction: first, national and regional accuracy (Emb‑Top14 vs Harm‑Top14); second, spatial coherence; and third, calibration and threshold sensitivity. We conclude with agreement against DLT and BD Forêt to contextualize where annual phenology diverges from static products (#no cnclusion).
+\subsection{National Comparison}
+(#this part has no finished writing, in a paper, you need to have a narrative text around what is presented in each table and figure, 
+
+I can’t really do this for you)
+\begin{table}[H]
+    \centering
+    \begin{tabular}{lccc}
+        \hline
+        \textbf{Model} & \textbf{OA} & \textbf{F1\_macro} & \textbf{F1\_weighted} \\ \hline
+        Emb-14 (baseline) & \textbf{0.924} (\(\pm\) 0.009) & \textbf{0.903} (\(\pm\) 0.006) & \textbf{0.926} (\(\pm\) 0.009) \\
+        Harmonic-14 & 0.904 (\(\pm\) 0.007) & 0.874 (\(\pm\) 0.011) & 0.905 (\(\pm\) 0.006) \\
+        \hline
+    \end{tabular}
+    \caption{National performance under identical eco-region folds and weights (mean ± sd across folds).}
+    \label{tab:national_comparison}
+\end{table}
+
+The embedding baseline outperforms harmonics by 2.0 percentage points nationally (#?), reaching 92.4\% accuracy with minimal feature engineering. Harmonics remain competitive at 90.4\%, encoding explicit seasonal patterns in interpretable temporal descriptors. Macro‑F1 and weighted F1 follow the same pattern (Emb‑Top14: 0.905/0.926; Harm‑Top14: 0.874/0.905).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{images/tiles_2_5_km_final_visualization.png}
+    \caption{Dataset tiles (training and validation) distributed across France's eleven eco-regions, ensuring representation of diverse phenological patterns from oceanic to mediterranean climates. Each 2.5\,km tile contains multiple labeled pixels for cross-validation.}
+    \label{fig:training_tiles}
+\end{figure}
+
+\subsection{Regional Performance Patterns}
+
+Performance varies meaningfully across eco-regions, reflecting forest composition and phenological complexity. Table \ref{tab:eco_region_performance} reports overall accuracy and macro-F1 for Harm-Top14 versus Emb-Top14, together with the embedding minus harmonic deltas (#jargon, you mean differences in performance ?). Embeddings deliver the largest macro-F1 gains in Atlantic mosaics (Greater Crystalline West: +7.7 points; Oceanic Southwest: +6.7 points) and mountainous regions (Pyrenees: +8.6 points) (#instead of points define th diference between what and what and you can call it delta, then give values in the ( ) ), where mixed stands and elevation gradients challenge purely temporal descriptors. Central Massif and the semi-oceanic North also benefit (+3–5 points), highlighting the value of spatial context in heterogeneous landscapes. Mediterranean forests show parity within rounding (−0.9 F1 points), reflecting the intrinsic difficulty of drought-adapted phenology where both models already struggle. These regional patterns set expectations for downstream disturbance alerts: embeddings offer the greatest uplift in mixed or topographically complex regions while maintaining comparable performance in evergreen-dominated Mediterranean stands.
+
+\begin{table}[H] %could you just merge table 1 and this one by adding a line with ‘all France’ on this table ?
+\centering
+\begin{tabular}{lrrrrrr}
+\toprule %OA instea of acc + use same notations than table 1
+\textbf{Eco-region} & \textbf{Acc. Harm} & \textbf{Acc. Emb} & $\Delta$ & \textbf{F1 Harm} & \textbf{F1 Emb} & $\Delta$ \\ \midrule
+Pyrenees & 0.930 & 0.947 & +0.017 & 0.775 & 0.861 & +0.086 \\
+Corsica & 0.654 & 0.662 & +0.008 & 0.554 & 0.634 & +0.080 \\
+Greater Crystalline and Oceanic West & 0.873 & 0.931 & +0.058 & 0.815 & 0.892 & +0.077 \\
+Oceanic Southwest & 0.925 & 0.953 & +0.027 & 0.867 & 0.934 & +0.067 \\
+Semi-Oceanic North Center & 0.937 & 0.958 & +0.021 & 0.856 & 0.903 & +0.047 \\
+Greater Semi-Continental East & 0.952 & 0.960 & +0.008 & 0.810 & 0.857 & +0.046 \\
+Central Massif & 0.895 & 0.927 & +0.032 & 0.887 & 0.922 & +0.035 \\
+Jura & 0.882 & 0.920 & +0.038 & 0.775 & 0.807 & +0.031 \\
+Vosges & 0.880 & 0.900 & +0.020 & 0.840 & 0.868 & +0.028 \\
+Alps & 0.869 & 0.888 & +0.019 & 0.854 & 0.864 & +0.010 \\
+Mediterranean & 0.811 & 0.803 & $-$0.008 & 0.791 & 0.782 & $-$0.009 \\\bottomrule
+\end{tabular}
+\caption{Eco-region accuracy (Acc.) and macro-F1 (F1) for Harm-Top14 vs Emb-Top14 Random Forests. $\Delta$ denotes Embedding minus Harmonic.}
+\label{tab:eco_region_performance}
+\end{table}
+
+\textbf{Spatial coherence of embeddings}: The embedding-based maps show notably smoother, more spatially coherent patterns than harmonic-based results. This occurs because AlphaEarth's training incorporates spatial context—each embedding vector summarizes not just a single pixel but implicitly includes neighborhood information \citep{AlphaEarth2025}. When Random Forest classifiers process these embeddings, this built-in spatial context acts as a regularizer, producing contiguous forest patches without the isolated pixels common in purely spectral approaches (#this sounds completely qualitative and it was set as a reserach qustion ( one would expect a quantitative analysis of ‘coherence’ etc … with speciic metrics,). Quantitatively, coherence metrics (#what is the coherence metrics please explain in the method section) computed over 639 eco-balanced 2.5\,km tiles confirm this behavior: Emb-Top14 reduces class-boundary length by about 55\% compared to Harm-Top14 (3.9 vs 8.8 km of boundary per 1000 km$^2$; equivalently 3924 vs 8789 m km$^{-2}$) and lowers patch density by about 65\% (2.9k vs 8.5k patches per 100 km$^2$) (#this part is interestng but nearly impossible to understand without more explanations , especially in the method part). A simple 3\,$\times$\,3 median filter narrows the harmonic gap, yet embeddings remain ~9\% lower edge density and ~7\% fewer patches on average, with identical forest coverage.
+
+\textbf{Calibration and threshold sensitivity}: Out-of-fold probabilities show that embeddings remain well calibrated despite higher accuracy. Expected Calibration Error (ECE) drops to 0.033 (Maximum Calibration Error 0.114) for Emb-Top14, compared with 0.059 (MCE 0.184) for Harm-Top14. Macro-F1 stays within a 0.003 band when shifting the decision threshold from 0.45 to 0.55 (0.903–0.906 for embeddings; 0.870–0.879 for harmonics), indicating that operational threshold adjustments introduce minimal drift. Reliability histograms and per-threshold confusion counts are provided in Supplement~S6.
+
+% (Removed duplicate results subsection on product comparison; consolidated under the later section.)
+
+\subsection{National Forest Phenology Map} %evergreen- deciduous
+
+Figure \ref{fig:national_map} presents our 2023 deciduous-evergreen classification of French forests using the embedding-based model (Emb-14), which achieved superior national accuracy. The map reveals patterns invisible in traditional forest classifications: sharp deciduous-evergreen boundaries along elevation gradients, maritime pine dominance along the Atlantic coast, and complex mosaics in managed forests.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/France_Map_emb.png}
+    \caption{France 2023 deciduous--evergreen map from the embedding model (Emb‑Top14). Orange denotes deciduous, cyan denotes evergreen; the inset shows Corsica. Spatial patterns match major ecological gradients: evergreen dominance along Mediterranean and Atlantic pine regions (Landes) and at higher elevations (Alps, Jura, Vosges), with deciduous prevalence across lowland temperate belts. Compared to hand‑designed features, embeddings yield smoother, more coherent patches while preserving sharp transitions where they exist.}
+    \label{fig:national_map}
+\end{figure}
+
+Our national map classifies French forests as 64.4\% deciduous and 35.6\% evergreen—consistent with National Forest Inventory estimates while providing annual updates for climate monitoring. The fine 10\,m resolution captures heterogeneity essential for modern forest management, enabling detection of small-scale disturbances and gradual species shifts that coarser products miss.
+
+\textbf{Computational Efficiency}: The complete pipeline processes France's 2+ billion forest pixels with remarkable efficiency (#compared to what ?). Harmonic feature extraction from Sentinel-2 time series requires 48 minutes using parallelized 100×100\,km tiles, while Random Forest inference completes in under an hour across 80 CPU cores. This efficiency (#maybe oversold, there is always computig resources to make annual maps of rather simpe attribtes , so what we have is not a breakthrough allowing to make annual updates) enables annual updates—a critical capability as climate change accelerates forest dynamics beyond the temporal resolution of static inventories.
+%recommendation : remove this computational efficiency part 
+\section{Embedding–harmonic similarity analysis} %interestng part but was not really introduced in the intro and method
+
+To understand what information embeddings capture compared to explicit harmonic features, we analyzed their mathematical relationship. We projected each embedding dimension onto our harmonic feature space using ridge regression, evaluating alignment through cross-validated $R^2$ scores (#nice idea ). This approach reveals whether embeddings encode similar seasonal patterns or capture fundamentally different information. Details of the ridge regression setup and cross-validation procedure appear in Supplement S3.
+
+\subsection{Linear Alignment Patterns}
+
+Table \ref{tab:similarity_ecoregion} summarizes the alignment analysis. The consistently negative mean $R^2$ values indicate that embeddings cannot be linearly reconstructed from harmonic features—they encode additional information beyond explicit seasonal patterns (#thay also use topography climate etc … ? ?). However, individual embedding dimensions show moderate correlations with specific phenological descriptors, particularly first-harmonic amplitudes (capturing seasonal strength) and spectral offsets (capturing baseline vegetation properties).
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lcc}
+\hline
+\textbf{Eco-region} & \textbf{Mean R²} & \textbf{Top group (|r| mean)} \\ \hline
+Vosges & -0.06 & CRSWIR: offset (0.68) \\
+Alps & -0.31 & NDVI: amplitude\_h1 (0.54) \\
+Greater Crystalline and Oceanic West & -0.35 & NBR: amplitude\_h1 (0.66) \\
+Semi-Oceanic North Center & -0.33 & NBR: amplitude\_h1 (0.54) \\
+Central Massif & -0.32 & CRSWIR: offset (0.65) \\
+Mediterranean & -0.49 & NBR: amplitude\_h1 (0.62) \\
+Oceanic Southwest & -0.87 & NBR: amplitude\_h1 (0.61) \\
+Greater Semi-Continental East & -0.56 & NBR: amplitude\_h1 (0.52) \\
+Corsica & -0.72 & NDVI: amplitude\_h1 (0.55) \\
+Pyrenees & -0.90 & NDVI: amplitude\_h1 (0.54) \\
+Jura & -0.72 & CRSWIR: offset (0.54) \\ \hline
+\end{tabular}
+\caption{Embedding–harmonic linear alignment by eco-region (out-of-sample mean R², top correlated harmonic group with mean absolute correlation). Full top-3 per region in Supplement~S3.}
+\label{tab:similarity_ecoregion}
+\end{table}
+
+% [Table removed: duplicate of eco-region performance already reported earlier]
+
+\subsection{Phenological Pattern Recognition}
+
+Despite poor global linear reconstruction, (#of embeddings using harmonics ) three interpretable patterns emerge across regions:
+
+\textbf{Seasonal amplitude}: Multiple embedding dimensions correlate with first-harmonic amplitudes of vegetation indices (|r| ≈ 0.5–0.7). In phenological terms, this captures the strength of seasonal variation—deciduous forests show large amplitudes due to leaf phenology, while evergreens maintain relatively constant values year-round. This amplitude difference serves as the primary discriminator between forest types.
+
+\textbf{Baseline spectral properties}: CRSWIR offset shows consistent alignment (|r| ≈ 0.5–0.7), capturing baseline water content and woody structure. Unlike seasonal amplitudes that vary through the year, these offsets represent the stable spectral baseline of forest stands—information critical for distinguishing forest composition independent of seasonal state.
+
+\textbf{Regional specialization}: Different eco‑regions emphasize different harmonic components (#I don’t quite understand this sentencen what does ‘emphasize’ means ? ), and the embeddings mirror these emphases. In mountain regions (Vosges, Jura, Central Massif), several embedding dimensions correlate more with CRSWIR offsets, suggesting the representation carries stable structural/moisture cues typical of evergreen‑dominated, topographically complex forests. Atlantic regions show stronger alignment with NBR amplitudes, consistent with moisture‑driven contrasts (e.g., maritime pines vs mixed broadleaf). Mediterranean areas exhibit relatively greater alignment with timing terms (NDVI phase), reflecting drought‑driven seasonality and evergreen broadleaf prevalence. These patterns indicate that while embeddings are learned generically, they retain phenology‑relevant signals that vary with regional ecology.
+
+Quantitatively, first-harmonic amplitudes show strongest alignment (mean |r| ≈ 0.50), followed by spectral offsets (≈0.44). This hierarchy makes ecological sense: seasonal vigor and baseline forest structure represent the two primary axes distinguishing deciduous from evergreen forests.
+
+These findings support a physically grounded view of the embeddings as annual fingerprints: they encode seasonal vigor, baseline moisture/structure, and some timing information, alongside additional spatial context not captured by harmonic decomposition alone. Region-level summaries and coefficient diagnostics are provided in Supplement S3.
+
+\subsection{Performance-Similarity Relationships}
+
+The correlation patterns do not directly predict performance differences between methods. While embeddings consistently outperform harmonics, the advantage varies by region independent of alignment strength. The negative overall $R^2$ values confirm that embeddings capture complementary information—likely spatial context and multi-scale patterns—that harmonic features cannot encode. This additional information explains the 2.0 percentage point accuracy advantage, particularly in complex environments like Mediterranean forests where phenological boundaries blur.
+
+\section{Comparison with Existing Products}
+
+We benchmark our annual phenology maps against two widely used references: Copernicus Dominant Leaf Type (DLT; broadleaved vs coniferous) \citep{EU2024a} and BD Forêt V2 (deciduous vs evergreen phenology class) \citep{IGN2024}. For dynamic phenology metrics, the Copernicus High Resolution Vegetation Phenology and Productivity (HR-VPP) provides continent-wide seasonal indicators complementary to our annual phenological classes \citep{EU2024b}. Table~\ref{tab:product_comparison_national} summarizes national-level agreement; spatial agreement maps and eco-region tables are provided in Supplementary Section~S9.
+
+\begin{table}[H]
+    \centering
+    \caption{National agreement with existing products (forest pixels only). Metrics derived from aggregated confusion counts over the eco-region grid.}
+    \begin{tabular}{lccc}
+        \hline
+        \textbf{Comparison} & \textbf{Overall Accuracy} & \textbf{Kappa} & \textbf{Macro F1} \\
+        \hline
+        Harmonic vs DLT & 62.7\% & 0.17 & 57.8\% \\
+        Embedding vs DLT & 62.8\% & 0.16 & 57.4\% \\
+        Harmonic vs BD Forêt & 63.9\% & 0.17 & 58.5\% \\
+        Embedding vs BD Forêt & 63.8\% & 0.16 & 58.2\% \\
+        \hline
+    \end{tabular}
+    \label{tab:product_comparison_national}
+\end{table}
+
+Agreement levels reflect differing label ontologies and time bases. DLT is a static broadleaf/conifer type that does not separate evergreen broadleaf from deciduous broadleaf, while BD Forêt V2 is a multi-year compilation (2007–2018). Our annual phenology maps purposefully diverge where evergreen broadleaf occur within broadleaf-dominant areas and where recent disturbances alter canopy composition (#I like the ide abut after a disturbance it is grass or shrubs and only trees with sufficient cover after many years, so we probably cannot detect a change of forest type eg one year after a disturbance, but you will see the phenology of grass which is close to decidous trees, so you expect to see after conifer disturbances somethng that looks like decidous but is not a deciduous forest ). Both RF pipelines obtain similar national scores against the legacy products—embeddings edge slightly ahead on BD Forêt macro-F1 (+0.3 points) while harmonics achieve marginally higher kappa (#again all non trivlal metrics to be introduced before, kappa can be considered as non trivial even if used by RS people). Regionally, embeddings reduce the F1 gap in Corsica (+4.8 points vs DLT, +1.8 vs BD Forêt) and Atlantic mosaics (+1.0 to +1.6 points), while alpine/Mediterranean regions remain within ±0.5 points of the harmonic baseline. Per‑eco‑region metrics and agreement maps are provided in Supplementary Section~S9.
+
+Both approaches also show clear qualitative advantages in mixed forest environments where phenological discrimination proves most valuable. Figure~\ref{fig:comparison_products} contrasts three representative landscapes—Les Landes plantations (very local scale), the Castagniccia area in Corsica (medium scale, autumn scene), and the Fontainebleau forest (regional scale).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/Comparison_dlt_bdforet_harmonic_embedding.png}
+    \caption{Qualitative comparison across three sites (rows) and five sources (columns: satellite reference, Harmonic‑Top14, Embedding‑Top14, BD Forêt V2, Copernicus DLT). Colors: orange~deciduous (broadleaf for DLT), cyan~evergreen (coniferous for DLT).\newline
+    Landes (very local scale): Embedding‑Top14 best matches plantation edges and avoids isolated speckle, while Harmonic‑Top14 recovers a few small patches but appears noisier; BD Forêt boundaries are outdated and DLT falls between our two inferences.\newline
+    Corsica–Castagniccia (medium scale, autumn): Embedding‑Top14 most faithfully reproduces the tonal change visible in the image (deciduous chestnut vs evergreen oak), whereas DLT conflates both as broadleaf and BD Forêt lacks recency.\newline
+    Fontainebleau (regional scale): All maps capture the main pattern; Embedding‑Top14 offers the best trade‑off between noise (false deciduous speckle) and over‑smoothing.}
+    \label{fig:comparison_products}
+\end{figure}
+
+These examples highlight a consistent behavior: embeddings encode neighborhood context, yielding smoother, more coherent class patches without isolated pixels, while harmonic features provide crisp pixelwise decisions that can appear speckled at fine scales. Simple post‑processing (e.g., median filtering) narrows this gap for harmonics, but embedding‑based inference attains similar regularization intrinsically.
+
+
+\section{Discussion and Outlook}
+
+AlphaEarth embeddings \citep{AlphaEarth2025} offer a (#a good) pragmatic baseline: modest but consistent accuracy gains (+2.0 pp nationally) (#maybe here give the max gain and also if some pixels have worse performances ), no feature‑engineering pipeline, and annual availability (2017+) via Earth Engine. External benchmarks also report strong label‑efficiency for foundation‑model features in downstream tasks \citep{Dionelis2024BenchmarkFM}. Our results fit this picture: harmonics remain competitive and interpretable for phenology, while embeddings add complementary spatial context and cross‑year consistency. In practical terms, pre‑computed features shift computing effort away from time‑series fitting and enable fast national inference on standard CPUs.
+
+Harmonics remain attractive where interpretability matters most. The 14 descriptors encode seasonal amplitude, timing, and residual consistency; they are easy to audit and relate to vegetation processes. The trade‑off is engineering complexity (mosaics, QA, fitting) and slightly lower accuracy in mixed or topographically complex regions.
+
+For disturbance monitoring, an annual deciduous–evergreen map serves (#be careful, see comemnt above) as a stable prior. Class‑conditioned thresholds can reduce false alarms (e.g., higher change thresholds for deciduous pixels with naturally higher seasonal variance), and the calibrated probabilities (ECE~0.033 for embeddings; 0.059 for harmonics) support threshold adjustments without large drifts in macro‑F1. The improved spatial coherence of the embedding map further reduces speckle‑triggered alerts and yields cleaner units for downstream segmentation. Static products (DLT, BD Forêt) remain useful points of reference, but lack recency (BD Forêt) or class alignment with evergreen broadleaf (DLT), explaining regional disagreements.
+
+Limitations include our binary label space (evergreen/deciduous) and the annual snapshot assumption. Mediterranean ecotones and evergreen broadleaf areas remain challenging for both approaches. Extending to annual multi‑year change summaries and expanding taxa classes are natural follow‑ups. Finally, ensuring fair comparisons across regions requires careful weighting and tile‑grouped cross‑validation; we provide code and CLI commands to reproduce all tables and figures.
+
+Beyond binary phenology, we trained multiclass models on the 64‑dimensional embeddings to predict tree taxa (#using whch labels ? 
+
+this is a much more exciting application and if you mention it, you need to introduce it in ntro ( and discuss with Sarah how much you want to go into this as if a simple approach like yours works well why use her complex model for the same purpose )). At genus level the model attains strong overall performance (OA ≈ 0.83; weighted F1 ≈ 0.83; macro‑F1 ≈ 0.39), with dominant genera reaching F1 between ~0.64 and 0.90. Species‑level modeling is promising but more uneven (OA ≈ 0.77; weighted F1 ≈ 0.77; macro‑F1 ≈ 0.29), reflecting a long‑tailed label distribution and sparser supervision. These results indicate that embeddings encode taxonomic cues beyond deciduous–evergreen, especially for head classes. Future work will address the tail with class‑balanced training and hierarchical strategies (genus→species), eco‑region‑aware priors, calibrated probabilities with top‑k reporting, and light spatial regularization to improve rare taxa without harming transfer.
+
+\subsection{Phenology-Informed Disturbance Detection}
+Automated change detection methods can confuse seasonal phenology with true disturbances. Decomposition and harmonic frameworks (e.g., CCDC, BEAST, BFAST, LandTrendr) explicitly model or remove seasonal components before testing for breaks \citep{Zhu2014,Zhao2019,Verbesselt2010a,Verbesselt2010b,Kennedy2010,Kennedy2018}. A phenology map provides complementary (not convinces as the vegetation after a distrbance is not trees, 
+
++ rewrte the text as narrative not just a list of topics), external context that further reduces false positives:
+
+\textit{Dynamic thresholds by phenology class} — In deciduous areas with high natural variability, require larger or more sustained vegetation index drops to trigger alarms; in evergreen areas with low variability, allow more sensitive thresholds. This aligns alert sensitivity with each pixel’s phenological noise floor.
+
+\textit{Phenology-aware filtering} — Down-weight or discard alerts that coincide with expected events (e.g., leaf-off in late autumn for pixels mapped as deciduous), adding a rule-based sanity check on top of time-series residual tests.
+
+\textit{Class-specific model configuration} — Tune detection parameters per phenology class (e.g., number of harmonics, residual thresholds), rather than one-size-fits-all settings, to reflect different seasonal dynamics.
+
+\textit{Context-aware sensor fusion} — In deciduous zones, deprioritize optical greenness signals during winter and rely more on complementary cues (e.g., radar backscatter) when validating alerts; in evergreen zones, treat moderate greenness drops as more informative.
+
+Together, these phenology-informed strategies improve precision by filtering out cyclical dynamics while preserving sensitivity to genuine disturbances—allowing operational systems to focus on anomalies that deviate from both modeled seasonality and the mapped phenological regime.
+
+Complementary change architectures have also been explored with AlphaEarth datasets: bi-temporal Siamese U-Net models achieve strong cross-continental burned-area mapping with high overall accuracy and robust edge delineation \citep{Seydi2025AlphaEarthBurnedArea}. This supports the use of embeddings not only for classification but also for disturbance segmentation in dynamic forest monitoring.
+
+\subsection{Transferability and Scalability Considerations}
+
+Our eco-region cross-validation approach demonstrates AlphaEarth embeddings' robust domain adaptation capabilities. While foundation models in some domains face transferability challenges with accuracy dropping 7-9\% across environmental gradients, AlphaEarth embeddings consistently outperform harmonics across all French eco-regions, showing superior features for classification even in challenging Mediterranean environments (+2.5 pp) and Corsica (+4.0 pp). This demonstrates that embeddings excel at capturing diverse environmental patterns, providing robust performance across the full range of French forest conditions.
+
+Both approaches enable efficient continental-scale monitoring—processing France's 2+ billion forest pixels in under an hour on standard computational infrastructure. While embeddings require Google's TPU infrastructure for initial training, the pre-computed nature via Earth Engine democratizes access for operational deployment.
+
+External cross-border transfer using AEF further indicates that simple per-pixel models (logistic regression, random forests) can generalize when trained on embeddings, with reported accuracies of \~73–81\% for physiognomic vegetation classes across the USA–Canada boundary; authors attribute part of this success to neighborhood context encoded in single-pixel embeddings and note accuracy–granularity trade-offs \citep{Houriez2025AEFDataGen}.
+
+Future applications leverage these annual phenology maps for enhanced disturbance detection, where knowing baseline phenological regimes (deciduous high-variance versus evergreen stability) can materially reduce false positives. Integration with existing detection algorithms (CCDC, BFAST) enables separation of genuine disturbances from seasonal patterns. Species-level refinement will support targeted pest and disease monitoring, as different forest types show distinct vulnerability profiles. The operational efficiency demonstrated here enables continental-scale monitoring with near real-time disturbance alerts.
+
+\section{Conclusion}
+
+We present a practical method to annual 10\,m deciduous–evergreen mapping using AlphaEarth embeddings as a pragmatic baseline (92.4\% accuracy), benchmarked against interpretable harmonic features (90.4\% accuracy) (#I woudld give a mean and an IQR across all validation pixels). Embeddings provide modest, consistent gains with minimal feature engineering; harmonics remain competitive and interpretable.
+
+Both approaches enable the annual phenological monitoring essential for disturbance detection systems. Knowing the prevailing phenology (deciduous high variance versus evergreen stability) helps reduce false positives and focus alerts on genuine change.
+
+Future directions include: (i) continuing to use and refine AlphaEarth‑style embeddings as strong per‑pixel features for national mapping; (ii) improving change‑detection algorithms with class‑aware thresholds and temporally consistent priors; and (iii) exploiting embedding geometry (e.g., cosine similarity) to classify and cluster forest disturbances by type and progression.
+
+\section*{Data Availability}
+Training data summaries, model configurations, cross-validation splits, and similarity analysis outputs will be made available with the publication. The 2023 10\,m deciduous–evergreen map of France will also be released.
+
+\section*{Code Availability}
+Code to reproduce data preparation, feature extraction, model training, evaluation, and similarity analyses will be released upon publication.
+
+\bibliographystyle{Frontiers-Harvard}
+\bibliography{phenology}
+
+\end{document}
