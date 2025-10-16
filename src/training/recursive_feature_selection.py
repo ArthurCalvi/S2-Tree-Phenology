@@ -22,6 +22,8 @@ Date: April 2024
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from src.utils import apply_science_style
+apply_science_style()
 import seaborn as sns
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import RFECV

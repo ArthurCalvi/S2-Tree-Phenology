@@ -77,11 +77,9 @@ def build_band_lookup(descriptions: Iterable[str]) -> Mapping[str, int]:
     """Create lookup dictionary from band description (A00) to 1-based band index."""
     lookup: dict[str, int] = {}
     for idx, desc in enumerate(descriptions, start=1):
-        if not desc:
-            continue
-        key = desc.strip()
+        key = f"A{idx-1:02d}" if not desc else desc.strip()
         if not key:
-            continue
+            key = f"A{idx-1:02d}"
         lookup[key] = idx
     return lookup
 

@@ -5,6 +5,8 @@ import argparse
 import geopandas as gpd
 import pandas as pd
 import matplotlib.pyplot as plt
+from src.utils import apply_science_style
+apply_science_style()
 import matplotlib.patches as mpatches
 from matplotlib.colors import ListedColormap
 import matplotlib as mpl
@@ -16,7 +18,8 @@ import logging
 # Add the parent directory to sys.path to ensure imports work correctly
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 try:
-    from src.constants import MAPPING_SER_ECO_REGIONS, MAPPING_ECO_REGIONS_FR_EN
+from src.constants import MAPPING_SER_ECO_REGIONS, MAPPING_ECO_REGIONS_FR_EN
+from src.utils import science_style
 except ImportError:
     logging.error("Could not import constants. Make sure src/constants.py exists and the script is run from the project root or PYTHONPATH is set.")
     # Provide fallback empty dicts if import fails, though processing will likely fail
@@ -100,102 +103,87 @@ def create_visualization(
         Path to the saved visualization.
     """
     logging.info("Starting visualization creation...")
-    
-    fig = plt.figure(figsize=(10, 10.5)) 
-    gs = fig.add_gridspec(2, 1, height_ratios=[8.5, 1.5], hspace=0.05) 
-    ax_map = fig.add_subplot(gs[0, 0])
-    ax_legend = fig.add_subplot(gs[1, 0])
-    ax_legend.axis('off')
-    
-    # --- Eco-region Plotting ---
-    num_regions = len(eco_regions['NomSER'].unique())
-    pastel_colors = [
-        "#c6def1", "#fadadd", "#e6f5c9", "#e0cef1", "#f1e1c6", "#def1c6",
-        "#f1d4c6", "#c6f1e7", "#f5e2c9", "#f1c6d8", "#d9f1c6",
-    ]
-    colors_list = pastel_colors * (1 + num_regions // len(pastel_colors))
-    colors_list = colors_list[:num_regions]
-    cmap = ListedColormap(colors_list)
 
-    logging.info(f"Plotting {len(eco_regions)} processed eco-regions...")
-    eco_regions.plot(
-        column='NomSER',
-        ax=ax_map,
-        alpha=0.8,
-        cmap=cmap,
-        edgecolor='white',
-        linewidth=1.0
-    )
+    with science_style():
+        fig = plt.figure(figsize=(10, 10.5))
+        gs = fig.add_gridspec(2, 1, height_ratios=[8.5, 1.5], hspace=0.05)
+        ax_map = fig.add_subplot(gs[0, 0])
+        ax_legend = fig.add_subplot(gs[1, 0])
+        ax_legend.axis('off')
 
-    unique_regions = sorted([str(r) for r in eco_regions['NomSER'].unique() if r is not None])
-    region_colors = {region: colors_list[i % len(colors_list)] for i, region in enumerate(unique_regions)}
+        num_regions = len(eco_regions['NomSER'].unique())
+        pastel_colors = [
+            "#c6def1", "#fadadd", "#e6f5c9", "#e0cef1", "#f1e1c6", "#def1c6",
+            "#f1d4c6", "#c6f1e7", "#f5e2c9", "#f1c6d8", "#d9f1c6",
+        ]
+        colors_list = (pastel_colors * (1 + num_regions // len(pastel_colors)))[:num_regions]
+        cmap = ListedColormap(colors_list)
 
-    # --- Center the map ---
-    bounds = eco_regions.total_bounds
-    x_min, y_min, x_max, y_max = bounds
-    margin = 0.05
-    x_margin = (x_max - x_min) * margin
-    y_margin = (y_max - y_min) * margin
-    ax_map.set_xlim(x_min - x_margin, x_max + x_margin)
-    ax_map.set_ylim(y_min - y_margin, y_max + y_margin)
-    
-    # --- Set Equal Aspect Ratio ---
-    ax_map.set_aspect('equal', adjustable='box') # Ensure correct map proportions
-
-    # --- Tile Plotting ---
-    logging.info(f"Plotting {len(selected_tiles)} selected tiles with black edges...")
-    selected_tiles.plot(
-        ax=ax_map,
-        color='black',
-        markersize=7,
-        edgecolor='black',
-        linewidth=0.5,
-        zorder=3
-    )
-
-    # --- Main map cosmetics ---
-    ax_map.set_xticks([])
-    ax_map.set_yticks([])
-    ax_map.set_xticklabels([])
-    ax_map.set_yticklabels([])
-    ax_map.spines['top'].set_visible(False)
-    ax_map.spines['right'].set_visible(False)
-    ax_map.spines['bottom'].set_visible(False)
-    ax_map.spines['left'].set_visible(False)
-    ax_map.set_title('Tile Distribution by Eco-Region', fontsize=14, pad=10)
-
-    # --- Create legend (Eco-Regions only) in the bottom axis ---
-    logging.info("Creating eco-region legend...")
-    num_eco_regions = len(unique_regions)
-    ncols = max(4, (num_eco_regions + 2) // 3)
-    eco_region_patches = []
-    for region in unique_regions:
-        color = region_colors.get(region, 'gray')
-        eco_region_patches.append(
-            mpatches.Patch(color=color, alpha=0.8, edgecolor='white', linewidth=0.5, label=str(region))
+        logging.info(f"Plotting {len(eco_regions)} processed eco-regions...")
+        eco_regions.plot(
+            column='NomSER',
+            ax=ax_map,
+            alpha=0.8,
+            cmap=cmap,
+            edgecolor='white',
+            linewidth=1.0
         )
-    eco_legend = ax_legend.legend(
-        handles=eco_region_patches,
-        loc='center',
-        title="Eco-Regions",
-        ncol=ncols,
-        fontsize=9,
-        title_fontsize=11,
-        frameon=True,
-        framealpha=0.95,
-        edgecolor='black',
-        labelspacing=0.8,
-        columnspacing=1.0
-    )
-    ax_legend.add_artist(eco_legend)
 
-    # Adjust overall layout
-    fig.tight_layout(rect=[0, 0.03, 1, 0.97], pad=1.0)
+        unique_regions = sorted([str(r) for r in eco_regions['NomSER'].unique() if r is not None])
+        region_colors = {region: colors_list[i % len(colors_list)] for i, region in enumerate(unique_regions)}
 
-    # --- Save Figure ---
-    logging.info(f"Saving visualization to {output_path}...")
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    plt.close(fig)
+        bounds = eco_regions.total_bounds
+        x_min, y_min, x_max, y_max = bounds
+        margin = 0.05
+        x_margin = (x_max - x_min) * margin
+        y_margin = (y_max - y_min) * margin
+        ax_map.set_xlim(x_min - x_margin, x_max + x_margin)
+        ax_map.set_ylim(y_min - y_margin, y_max + y_margin)
+        ax_map.set_aspect('equal', adjustable='box')
+
+        logging.info(f"Plotting {len(selected_tiles)} selected tiles with black edges...")
+        selected_tiles.plot(
+            ax=ax_map,
+            color='black',
+            markersize=7,
+            edgecolor='black',
+            linewidth=0.5,
+            zorder=3
+        )
+
+        ax_map.set_xticks([])
+        ax_map.set_yticks([])
+        for spine in ax_map.spines.values():
+            spine.set_visible(False)
+        ax_map.set_title('Tile Distribution by Eco-Region', fontsize=14, pad=10)
+
+        logging.info("Creating eco-region legend...")
+        num_eco_regions = len(unique_regions)
+        ncols = max(4, (num_eco_regions + 2) // 3)
+        eco_region_patches = [
+            mpatches.Patch(color=region_colors.get(region, 'gray'), alpha=0.8, edgecolor='white', linewidth=0.5, label=str(region))
+            for region in unique_regions
+        ]
+        eco_legend = ax_legend.legend(
+            handles=eco_region_patches,
+            loc='center',
+            title="Eco-Regions",
+            ncol=ncols,
+            fontsize=9,
+            title_fontsize=11,
+            frameon=True,
+            framealpha=0.95,
+            edgecolor='black',
+            labelspacing=0.8,
+            columnspacing=1.0
+        )
+        ax_legend.add_artist(eco_legend)
+
+        fig.tight_layout(rect=[0, 0.03, 1, 0.97], pad=1.0)
+
+        logging.info(f"Saving visualization to {output_path}...")
+        fig.savefig(output_path, dpi=300, bbox_inches='tight')
+        plt.close(fig)
     logging.info("Visualization saved successfully.")
 
     return output_path

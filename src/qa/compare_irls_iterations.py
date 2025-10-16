@@ -14,6 +14,8 @@ import sys
 import matplotlib
 matplotlib.use('Agg')  # So we can write PDF without a display
 import matplotlib.pyplot as plt
+from src.utils import apply_science_style
+apply_science_style()
 from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np
 import pandas as pd

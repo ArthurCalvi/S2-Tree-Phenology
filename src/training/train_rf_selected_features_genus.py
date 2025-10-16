@@ -4,6 +4,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import confusion_matrix # Only confusion matrix from here
 from sklearn.model_selection import GroupKFold, StratifiedGroupKFold # StratifiedGroupKFold might be used by create_eco_balanced_folds_df
 import matplotlib.pyplot as plt
+from src.utils import apply_science_style
+apply_science_style()
 import seaborn as sns
 from collections import defaultdict
 import time

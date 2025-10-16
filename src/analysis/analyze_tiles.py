@@ -12,6 +12,10 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import seaborn as sns
 
+from src.utils import apply_science_style
+
+apply_science_style()
+
 # Add the src directory to the path so we can import from src modules
 sys.path.append(str(Path(__file__).parent.parent.parent))
 

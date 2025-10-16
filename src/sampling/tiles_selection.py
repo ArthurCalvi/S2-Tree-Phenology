@@ -201,6 +201,8 @@ def visualize_reference_region_tiles(
         Path to the saved visualization
     """
     import matplotlib.pyplot as plt
+from src.utils import apply_science_style
+apply_science_style()
     
     # Create figure and axis
     fig, ax = plt.subplots(figsize=(12, 10))

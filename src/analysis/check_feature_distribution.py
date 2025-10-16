@@ -11,6 +11,8 @@ and box plots.
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from src.utils import apply_science_style
+apply_science_style()
 import seaborn as sns
 import argparse
 import os

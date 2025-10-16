@@ -16,6 +16,8 @@ import textwrap # For wrapping long descriptions
 
 import geopandas as gpd
 import matplotlib.pyplot as plt
+from src.utils import apply_science_style
+apply_science_style()
 import matplotlib.colors as mcolors
 import numpy as np
 from mpl_toolkits.axes_grid1 import make_axes_locatable # For colorbar placement

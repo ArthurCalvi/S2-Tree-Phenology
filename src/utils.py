@@ -21,13 +21,33 @@ import os
 from collections import defaultdict
 from sklearn.utils import shuffle
 from pathlib import Path
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.utils.data import Dataset, DataLoader
+try:  # Optional PyTorch dependency
+    import torch
+    import torch.nn as nn
+    import torch.nn.functional as F
+    from torch.utils.data import Dataset, DataLoader
+except ImportError:  # pragma: no cover - optional dependency
+    from types import SimpleNamespace
+
+    torch = None
+    nn = SimpleNamespace(Module=object)  # type: ignore[attr-defined]
+    F = SimpleNamespace()
+
+    class Dataset:  # type: ignore
+        pass
+
+    class DataLoader:  # type: ignore
+        pass
 from sklearn.metrics import confusion_matrix, f1_score, precision_score, recall_score
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from contextlib import contextmanager
+
+try:
+    import scienceplots  # noqa: F401
+    _SCIENCEPLOTS_AVAILABLE = True
+except ImportError:  # pragma: no cover - optional dependency
+    _SCIENCEPLOTS_AVAILABLE = False
 
 from src.constants import (
     PHASE_RANGE,
@@ -41,6 +61,22 @@ from src.constants import (
     PHASE_TRANSFORM_SUFFIXES,
     PHENOLOGY_BAND
 )
+
+
+def apply_science_style() -> None:
+    """Apply the global SciencePlots style if the package is available."""
+    if _SCIENCEPLOTS_AVAILABLE:  # pragma: no cover - styling
+        plt.style.use(["science", "no-latex"])
+
+
+@contextmanager
+def science_style():
+    """Context manager to temporarily apply the SciencePlots style."""
+    if not _SCIENCEPLOTS_AVAILABLE:
+        yield
+    else:  # pragma: no cover - styling only
+        with plt.style.context(["science", "no-latex"]):
+            yield
 
 def scale_array_to_uint16(
     data: np.ndarray,

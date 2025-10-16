@@ -181,22 +181,12 @@ Embedding advantages broadly correlate with environmental complexity:
 
 \section{S5. Implementation Details}
 
-\subsection{Harmonic Feature Extraction}
-\begin{enumerate}
-    \item Sentinel-2 Level-2A time series extraction (2023, 10-day composites)
-    \item Cloud masking using QA60 band and SCL classification
-    \item Temporal interpolation and gap-filling
-    \item Two-harmonic Fourier decomposition per vegetation index
-    \item Feature aggregation at 10\,m pixel level
-\end{enumerate}
-Implementation: \texttt{src/features/extract\_harmonic\_features.py}
-
 \subsection{Embedding Feature Extraction}
 \begin{enumerate}
-    \item Data source: Earth Engine "Satellite Embedding V1 (Annual)" (10\,m, 64D, 2017–2024) \citep{Google2025SatelliteEmbeddingV1}.
-    \item Export year: 2023; exported at native 10\,m over forest AOIs; bands \texttt{A00..A63} (unit-normalized; public assets store int8 quantized values de-quantized on read).
-    \item Processing: server-side clipping per tile; local mosaic to the training grid; no additional normalization.
-    \item Note: some external work resamples embeddings to coarser grids (e.g., 500\,m) for continental-scale transfer; here we retain 10\,m for boundary fidelity \citep{Houriez2025AEFDataGen}.
+    \item Data source: Google Earth Engine \texttt{Satellite Embedding V1 (Annual)} collection (10\,m, 64-D AlphaEarth vectors, 2017--2024) \citep{Google2025SatelliteEmbeddingV1}.
+    \item For each study year (2018, 2020, 2022, 2023) we export the tiles at native 10\,m resolution, then clip/mosaic them to the 2.5\,km training grid.
+    \item Bands \texttt{A00..A63} are stored as quantized int8 in Earth Engine; values are de-quantized to float32 on read before any feature selection.
+    \item No additional normalization or smoothing is applied so that per-pixel embeddings remain comparable across years; downstream feature pruning (EMB-14) happens during cross-validation.
 \end{enumerate}
 Implementation: \texttt{src/gee/} and \texttt{src/inference/} workflows.
 
@@ -263,7 +253,7 @@ Reliability histograms (10 bins) and per-threshold confusion counts are availabl
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{images/reliability_comparison.png}
-    \caption{\textbf{Figure S2.} Reliability diagrams comparing Emb-Top14 (left) and Harm-Top14 (right) Random Forests. Bars show sample fraction per probability bin; circles plot mean confidence, squares plot empirical accuracy. The embedding model exhibits lower calibration error (ECE 0.033 vs 0.059) and smaller maximum deviation.}
+    \caption{\textbf{Figure S3.} Reliability diagrams comparing Emb-Top14 (left) and Harm-Top14 (right) Random Forests. Bars show sample fraction per probability bin; circles plot mean confidence, squares plot empirical accuracy. The embedding model exhibits lower calibration error (ECE 0.033 vs 0.059) and smaller maximum deviation.}
     \label{fig:reliability}
 \end{figure}
 
@@ -318,9 +308,9 @@ This section collects background references for geospatial foundation models and
     \item Discussion on when foundation models are effective for pixel-level classification \citep{Xie2024FoundationEffective}.
 \end{itemize}
 
-\section{S9. Product Comparisons (DLT, BD For\^et V2)}
+\section{S9. Product Comparisons (DLT, BD For\^{e}t V2)}
 
-We compare the 2023 harmonic-based phenology map against Copernicus DLT (broadleaved vs coniferous) and BD For\^et V2 (deciduous vs evergreen) using per-tile and per-eco-region summaries. Agreement is computed only where both products agree that a pixel is forest. National summary metrics are reported in Table~\ref{tab:product_comparison_national} of the main text.
+We compare the 2023 harmonic-based phenology map against Copernicus DLT (broadleaved vs coniferous) and BD For\^{e}t V2 (deciduous vs evergreen) using per-tile and per-eco-region summaries. Agreement is computed only where both products agree that a pixel is forest. National summary metrics are reported in Table~\ref{tab:product_comparison_national} of the main text.
 
 \subsection{Spatial Agreement Maps}
 
@@ -330,13 +320,13 @@ We compare the 2023 harmonic-based phenology map against Copernicus DLT (broadle
     \includegraphics[width=0.49\textwidth]{images/oa2x2_embeddings_bdforet.png}\\[0.5em]
     \includegraphics[width=0.49\textwidth]{images/oa2x2_harmonic_dlt.png}\hfill
     \includegraphics[width=0.49\textwidth]{images/oa2x2_harmonic_bdforet.png}
-    \caption{Tile-level agreement (OA, \%) computed where both maps indicate forest. Top: Embeddings vs DLT (left) and BD For\^et (right). Bottom: Harmonics vs DLT (left) and BD For\^et (right). Compact styling and percent colorbars highlight national patterns without clutter.}
+    \caption{Tile-level agreement (OA, \%) computed where both maps indicate forest. Top: Embeddings vs DLT (left) and BD For\^{e}t (right). Bottom: Harmonics vs DLT (left) and BD For\^{e}t (right). Compact styling and percent colorbars highlight national patterns without clutter.}
     \label{fig:oa2x2_products}
 \end{figure}
 
 \subsection{Eco-region Metrics}
 
-The weighted eco-region summaries for both harmonic and embedding comparisons—versus DLT and BD For\^et—are available in \texttt{results/comparison/embeddings\_vs\_dlt\_by\_region.csv}, \texttt{results/comparison/embeddings\_vs\_bdforet\_by\_region.csv}, and their harmonic counterparts. These tables include overall accuracy, kappa, and macro-F1 along with raw class-by-class confusion counts; analysts can slice them directly to build maps or statistics tailored to their regions of interest.
+The weighted eco-region summaries for both harmonic and embedding comparisons—versus DLT and BD For\^{e}t—are available in \texttt{results/comparison/embeddings\_vs\_dlt\_by\_region.csv}, \texttt{results/comparison/embeddings\_vs\_bdforet\_by\_region.csv}, and their harmonic counterparts. These tables include overall accuracy, kappa, and macro-F1 along with raw class-by-class confusion counts; analysts can slice them directly to build maps or statistics tailored to their regions of interest.
 
 \section{S10. Multiclass Tree Taxa from Embeddings}
 
@@ -346,7 +336,7 @@ We trained Random Forests on the 64‑dimensional annual embeddings to classify 
 
 \begin{table}[H]
     \centering
-    \caption{\textbf{Table S3.} Genus classification by eco‑region.}
+    \caption{\textbf{Table S4.} Genus classification by eco‑region.}
     \begin{tabular}{lcc}
         \hline
         Eco‑region & OA & Macro F1 \\
@@ -370,7 +360,7 @@ We trained Random Forests on the 64‑dimensional annual embeddings to classify 
 
 \begin{table}[H]
     \centering
-    \caption{\textbf{Table S4.} Species classification by eco‑region.}
+    \caption{\textbf{Table S5.} Species classification by eco‑region.}
     \begin{tabular}{lcc}
         \hline
         Eco‑region & OA & Macro F1 \\

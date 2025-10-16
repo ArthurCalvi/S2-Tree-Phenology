@@ -4,6 +4,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import f1_score, confusion_matrix, classification_report, precision_score, recall_score
 from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
 import matplotlib.pyplot as plt
+from src.utils import apply_science_style
+apply_science_style()
 import seaborn as sns
 from collections import defaultdict
 import time

@@ -31,6 +31,8 @@ from shapely.ops import unary_union
 import pandas as pd
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from src.utils import apply_science_style
+apply_science_style()
 import matplotlib.gridspec as gridspec
 from matplotlib.backends.backend_pdf import PdfPages
 import numpy as np

@@ -6,9 +6,13 @@ import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from src.utils import apply_science_style
+apply_science_style()
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 import pandas as pd
+
+from src.utils import science_style
 
 
 def load_curve(curve_path: Path) -> pd.DataFrame:
@@ -61,16 +65,17 @@ def main() -> None:
     embedding_metrics = load_metrics(args.embeddings_dir / 'calibration_metrics.json')
     harmonic_metrics = load_metrics(args.harmonic_dir / 'calibration_metrics.json')
 
-    fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharey=True, constrained_layout=True)
+    with science_style():
+        fig, axes = plt.subplots(1, 2, figsize=(10, 4), sharey=True, constrained_layout=True)
 
-    plot_panel(axes[0], embedding_curve, embedding_metrics, 'Embedding RF (Top-14)', color='#1f77b4')
-    plot_panel(axes[1], harmonic_curve, harmonic_metrics, 'Harmonic RF (Top-14)', color='#ff7f0e')
+        plot_panel(axes[0], embedding_curve, embedding_metrics, 'Embedding RF (Top-14)', color='#1f77b4')
+        plot_panel(axes[1], harmonic_curve, harmonic_metrics, 'Harmonic RF (Top-14)', color='#ff7f0e')
 
-    handles, labels = axes[0].get_legend_handles_labels()
-    fig.legend(handles, labels, loc='lower center', ncol=3, frameon=False)
+        handles, labels = axes[0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc='lower center', ncol=3, frameon=False)
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(args.output, dpi=300)
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(args.output, dpi=300)
 
 
 if __name__ == '__main__':

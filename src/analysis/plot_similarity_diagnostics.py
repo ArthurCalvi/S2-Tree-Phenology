@@ -4,6 +4,10 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
+from src.utils import apply_science_style, science_style
+
+apply_science_style()
+
 
 def parse_group(group: str):
     # Expect format index:component, e.g., ndvi:amplitude_h1
@@ -25,19 +29,20 @@ def plot_coefficients_heatmap(coef_csv: str, out_dir: str):
         pivot = pivot.reindex(index=["NDVI", "EVI", "NBR", "CRSWIR"])
         pivot = pivot.sort_index(axis=1)
         os.makedirs(out_dir, exist_ok=True)
-        fig, ax = plt.subplots(figsize=(10, 4))
-        im = ax.imshow(pivot.values, cmap="magma", aspect="auto", vmin=0, vmax=max(0.3, np.nanmax(pivot.values)))
-        ax.set_xticks(np.arange(pivot.shape[1]))
-        ax.set_xticklabels(pivot.columns, rotation=45, ha="right")
-        ax.set_yticks(np.arange(pivot.shape[0]))
-        ax.set_yticklabels(pivot.index)
-        ax.set_title(f"Normalized coefficient contributions — {eco}")
-        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-        cbar.set_label("Mean normalized |coef|")
-        plt.tight_layout()
-        out_path = os.path.join(out_dir, f"coef_heatmap_{eco.replace(' ', '_')}.png")
-        plt.savefig(out_path, dpi=200)
-        plt.close(fig)
+        with science_style():
+            fig, ax = plt.subplots(figsize=(10, 4))
+            im = ax.imshow(pivot.values, cmap="magma", aspect="auto", vmin=0, vmax=max(0.3, np.nanmax(pivot.values)))
+            ax.set_xticks(np.arange(pivot.shape[1]))
+            ax.set_xticklabels(pivot.columns, rotation=45, ha="right")
+            ax.set_yticks(np.arange(pivot.shape[0]))
+            ax.set_yticklabels(pivot.index)
+            ax.set_title(f"Normalized coefficient contributions — {eco}")
+            cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            cbar.set_label("Mean normalized |coef|")
+            plt.tight_layout()
+            out_path = os.path.join(out_dir, f"coef_heatmap_{eco.replace(' ', '_')}.png")
+            plt.savefig(out_path, dpi=200)
+            plt.close(fig)
         print(f"Saved {out_path}")
 
 
@@ -60,14 +65,15 @@ def plot_closest_harmonic_bar(closest_csv: str, out_dir: str):
     for eco, dfe in df.groupby("eco_region"):
         counts = dfe["group"].value_counts().sort_values(ascending=False)
         os.makedirs(out_dir, exist_ok=True)
-        fig, ax = plt.subplots(figsize=(10, 4))
-        counts.plot(kind="bar", color="#4daf4a", ax=ax)
-        ax.set_ylabel("Embeddings (Top-14) count")
-        ax.set_title(f"Most similar harmonic group — {eco}")
-        plt.tight_layout()
-        out_path = os.path.join(out_dir, f"closest_harmonic_bar_{eco.replace(' ', '_')}.png")
-        plt.savefig(out_path, dpi=200)
-        plt.close(fig)
+        with science_style():
+            fig, ax = plt.subplots(figsize=(10, 4))
+            counts.plot(kind="bar", color="#4daf4a", ax=ax)
+            ax.set_ylabel("Embeddings (Top-14) count")
+            ax.set_title(f"Most similar harmonic group — {eco}")
+            plt.tight_layout()
+            out_path = os.path.join(out_dir, f"closest_harmonic_bar_{eco.replace(' ', '_')}.png")
+            plt.savefig(out_path, dpi=200)
+            plt.close(fig)
         print(f"Saved {out_path}")
 
 
@@ -83,4 +89,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

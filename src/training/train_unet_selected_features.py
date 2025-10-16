@@ -24,6 +24,8 @@ Date: November 2023 / Modified: July 2024
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from src.utils import apply_science_style
+apply_science_style()
 import time
 import os
 import argparse

@@ -2,6 +2,8 @@ import argparse
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
+from src.utils import apply_science_style
+apply_science_style()
 
 
 def plot_r2_tile_map(per_tile_path: str, out_dir: str, title: str = "Tile similarity (R^2)"):
