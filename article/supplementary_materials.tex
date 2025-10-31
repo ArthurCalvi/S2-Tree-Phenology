@@ -243,17 +243,19 @@ Both approaches achieve substantial agreement (Kappa > 0.8), with embeddings sho
 We recomputed eco-region-balanced 5-fold cross-validation to extract out-of-fold probabilities for both Random Forest models. Key findings:
 
 \begin{itemize}
-    \item \textbf{Expected Calibration Error (ECE)}: Emb-Top14 = 0.033; Harm-Top14 = 0.059 (Maximum Calibration Error 0.114 vs 0.184).
-    \item \textbf{Threshold sweep (0.45/0.50/0.55)}: Embedding macro-F1 spans 0.903–0.906; harmonic macro-F1 spans 0.870–0.879.
-    \item \textbf{Fold variability}: Embedding macro-F1 standard deviation 0.003; harmonic 0.011.
+    \item \textbf{Expected Calibration Error (ECE)}: Emb-Top14 = 0.033; Harm-Top14 = 0.059 (Maximum Calibration Error 0.114 vs 0.184), confirming that predicted evergreen probabilities closely match observed frequencies.
+    \item \textbf{Threshold sweep (0.45/0.50/0.55)}: Embedding macro-F1 spans 0.903–0.906; harmonic macro-F1 spans 0.870–0.879, so modest threshold adjustments barely affect overall balance.
+    \item \textbf{Fold variability}: Embedding macro-F1 standard deviation 0.003; harmonic 0.011, indicating smoother behaviour across spatial folds.
 \end{itemize}
+
+For users, this means the posterior can be treated as a literal evergreen prevalence: increasing the decision threshold to 0.55 trims evergreen false positives while keeping macro-F1 within 0.003 of the default setting (\(\tau = 0.50\)). Conversely, lowering the threshold to 0.45 recovers additional evergreen pixels with only a marginal cost to deciduous accuracy. Because the histogram mass concentrates near 0 or 1, most pixels are classified with high confidence, and the reliability curves verify that these confident predictions are well grounded.
 
 Reliability histograms (10 bins) and per-threshold confusion counts are available in: \texttt{results/analysis\_calibration/embeddings/}\{\texttt{calibration\_metrics.json}, \texttt{reliability\_curve.csv}\} and \texttt{results/analysis\_calibration/harmonic/}\{\texttt{calibration\_metrics.json}, \texttt{reliability\_curve.csv}\}.
 
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.85\textwidth]{images/reliability_comparison.png}
-    \caption{\textbf{Figure S3.} Reliability diagrams comparing Emb-Top14 (left) and Harm-Top14 (right) Random Forests. Bars show sample fraction per probability bin; circles plot mean confidence, squares plot empirical accuracy. The embedding model exhibits lower calibration error (ECE 0.033 vs 0.059) and smaller maximum deviation.}
+    \caption{\textbf{Figure S3.} Reliability diagrams comparing Emb-Top14 (left) and Harm-Top14 (right) Random Forests. Bars show how many pixels fall in each evergreen-probability bin; the coloured circles plot the model’s average confidence per bin, and the black squares plot the empirical evergreen fraction. Perfect calibration would align the squares with the dashed diagonal. When the coloured circle sits above the black square the forest is slightly over-confident (predicted evergreen rate exceeds reality); the reverse indicates under-confidence. Emb-Top14 stays close to the diagonal (ECE 0.033, MCE 0.114) and concentrates mass near 0 and 1, signalling confident yet reliable predictions. Because macro-F1 remains within 0.903–0.906 when the evergreen threshold moves from 0.50 to 0.45 or 0.55, users can raise the threshold to suppress evergreen false positives or lower it to recover evergreens without destabilising overall accuracy. Residual calibration gaps concentrate around mid-range probabilities (0.4–0.6), where mixed stands and tile edges dominate; the extremes align closely, confirming that the forest cleanly separates pure deciduous and evergreen pixels.}
     \label{fig:reliability}
 \end{figure}
 
@@ -266,6 +268,16 @@ To quantify the qualitative differences in map texture, we computed two coherenc
     \item \textbf{Edge density} (m km$^{-2}$): total length of class boundaries divided by valid forest area;
     \item \textbf{Patch density} (per 100 km$^{2}$): number of 8-connected deciduous or evergreen patches scaled to 100 km$^{2}$.
 \end{itemize}
+
+Patch density relies on connected-component labelling with an 8-neighbour structure. For each tile we count deciduous components \(C_{\text{dec}}\) and evergreen components \(C_{\text{ever}}\), then report
+\begin{equation*}
+    D_{\text{dec}} = \frac{100\,C_{\text{dec}}}{A}, \qquad
+    D_{\text{ever}} = \frac{100\,C_{\text{ever}}}{A}, \qquad
+    D_{\text{tot}} = D_{\text{dec}} + D_{\text{ever}},
+\end{equation*}
+with \(A\) the forest area (km$^2$) within the tile. Smoother maps have few large components and therefore low densities; speckled predictions inflate \(C_{\cdot}\) and consequently \(D_{\cdot}\). The implementation follows `scipy.ndimage.label` with a \(3\times3\) kernel of ones.
+
+As a toy illustration, a 4\(\times\)4 tile containing one three-pixel deciduous block, one three-pixel evergreen block, and a solitary deciduous pixel yields \(C_{\text{dec}}=2\), \(C_{\text{ever}}=1\); if the tile covers \(A=0.25\)~km\(^2\) of forest, the densities become \(D_{\text{dec}} = 800\), \(D_{\text{ever}} = 400\), and \(D_{\text{tot}} = 1{,}200\) patches per 100~km\(^2\). A smoother map with a single deciduous block and a single evergreen block would halve \(D_{\text{tot}}\).
 
 Evaluated over 639 eco-balanced 2.5\,km tiles (sampling the national rasters):
 
