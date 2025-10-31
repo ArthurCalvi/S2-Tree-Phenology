@@ -36,6 +36,12 @@ Rewrite `article/article.tex` and `article/supplementary_materials.tex` iterativ
 
 Maintain a living narrative map in `scratchpad.md`. Use it to capture the storyline, hypotheses, figure/table intents, and cross-section themes as described in `article/review/writing_a_good_scientific_paper.md`, then propagate those points across Methods, Results, Discussion, and Conclusion draft iterations.
 
+### Article Writing Guidelines
+- Use simple sentences and keep paragraphs focused on one idea.
+- Do not cite repository paths or filenames in the manuscript; reference methods conceptually.
+- Aim for a clean, lean tone that prioritises clarity over flourish.
+- Ensure the storytelling stays easy to follow—state the context, the action, and the outcome explicitly in each section.
+
 ## Multi-agent Coordination
 - Assume other automation agents or collaborators might have active changes in the working tree. Never delete or overwrite files created by teammates unless you have confirmed they are no longer needed.
 - When you need to modify shared helpers (e.g., under `gee/` or `src/visualization/`), review `git status` and existing scripts first, then extend them in place rather than replacing or removing them.
