@@ -1,26 +1,66 @@
 # S2-Tree-Phenology
 
-France-wide deciduous vs evergreen mapping at 10 m resolution. The project compares two pipelines—physics-informed Sentinel-2 harmonics and AlphaEarth foundation-model embeddings—sharing the same sampling, eco-region folds, and evaluation protocol. This repository contains data-prep utilities, training scripts, HPC batch jobs, QA workflows, and article assets needed to reproduce the experiments reported in `article/article_v3.tex`.
+France-wide deciduous vs evergreen mapping at 10 m resolution. The project compares two pipelines—physics-informed Sentinel-2 harmonics and AlphaEarth foundation-model embeddings—sharing the same sampling, eco-region folds, and evaluation protocol. This repository contains data-prep utilities, training scripts, HPC batch jobs, QA workflows, and article assets needed to reproduce the experiments reported in `article/manuscript/article.tex`.
 
 ## Quick Start
 
 1. **Set up the environment**: create a Python ≥3.10 env and `pip install -r requirements.txt`. Configure Google Earth Engine (GEE) credentials and install `geefetch` for automated downloads.
-2. **Acquire inputs**: download Sentinel-2 monthly mosaics and AlphaEarth embeddings for France using the YAMLs under `geefetch/configs/` (see [Data Acquisition](#data-acquisition)).
+2. **Acquire inputs**: download Sentinel-2 monthly mosaics and AlphaEarth embeddings for France using the YAMLs under `ops/geefetch/configs/` (see [Data Acquisition](#data-acquisition)).
 3. **Build training tables**: run the parquet builders for harmonics and embeddings in `src/sampling/` to extract per-pixel training records.
 4. **Train models**: launch `bash src/training/run_train_rf_selected_features.sh` (harmonics) and the embedding variants (`run_train_rf_embeddings_all.sh`, `run_train_rf_embeddings_topk.sh`). Harmonic artefacts land in `results/final_model/`, while embedding models are saved under `results/final_model_embeddings/`.
 5. **Run national inference**: use the feature or embedding inference CLIs (`src/inference/inference_rf_on_tiles.py`, `src/inference/inference_rf_embeddings.py`) from Jean Zay job arrays to tile through France.
-6. **Evaluate & report**: QA scripts in `qa/jobs/` and analysis notebooks under `src/analysis/` reproduce the figures/statistics referenced in the article.
+6. **Evaluate & report**: QA scripts in `ops/qa/jobs/` and analysis notebooks under `src/analysis/` reproduce the figures/statistics referenced in the article.
+
+## Article Automation Loop
+
+1. Install CLI dependencies and YAML support once: `pip install pyyaml` (ensure `codex`, `claude`, and `gemini` CLIs are on `PATH`).
+2. Fill the tokens in `article/config/loop.yaml` (project name, claim, repo paths).
+3. Launch iterative drafting and review: `python article/scripts/loop.py`.
+   - Add `--mode interactive` to watch each agent run in your terminal; omit it for fully headless automation.
+   - Use `--start-from claude` or `--start-from gemini` to skip earlier stages on the first loop; pass `--build-pdf` if you want the loop to run `latexmk` (skipped by default).
+   - Provide temporary author instructions with `--guideline "..."` (repeatable) or `--guideline-file path/to/notes.md`; these shape Codex and Claude only—Gemini remains blind.
+   - Adjust `readability_gates` in `article/config/loop.yaml` (clarity/storytelling/readability minimums plus max confusions/style findings) to control stop conditions.
+   - Loop order: Codex builds the SPG → Codex linearises the outline → Claude refreshes LaTeX (consuming the latest Gemini review) → optional `latexmk` build → Gemini relays blind-review JSON (saved in `article/artifacts/`).
+   - The run stops early when `clarity_score` ≥ configured minimum and confusions fall below the set threshold.
+
+### Command reference
+
+| Command | When to use |
+| --- | --- |
+| `python article/scripts/loop.py` | Full autonomous loop (Codex → Claude → Gemini) in headless mode. |
+| `python article/scripts/loop.py --mode interactive` | Observe each agent’s output step-by-step with live Gemini stream updates. |
+| `python article/scripts/loop.py --start-from claude` | Begin the first loop at Claude (later loops run full Codex → Claude → Gemini sequence). |
+| `python article/scripts/loop.py --start-from gemini` | Begin the first loop at Gemini only (useful for a quick re-review); subsequent loops include all stages. |
+| `python article/scripts/loop.py --build-pdf` | Add a `latexmk` build after Claude edits (skipped if `latexmk` missing). |
+| `python article/scripts/loop.py --guideline "journal requires problem-first intro"` | Inject ad-hoc author guidance for the session (can be repeated). |
+| `python article/scripts/loop.py --guideline-file notes/author_style.md` | Load additional guidelines from a file (relative or absolute path). |
+
+Gemini reviews are saved under `article/artifacts/review_loop<iteration>_<timestamp>.json` for traceability.
+See `article/README.md` for detailed loop configuration, timing behaviour, and agent expectations.
+
+Gemini’s JSON now reports `clarity_score`, `storytelling_score`, `readability_score`, and detailed `style_findings[]`, making it easier to police pleasant prose (the main bottleneck when using AI for scholarly writing).
+After each run, the CLI prints a diff summary for `article.tex`, `supplementary_materials.tex`, and `references.bib` so you can spot manuscript changes at a glance.
+
+### Planner outline strategies
+
+Set in `article/config/loop.yaml` (`planner.outline_strategy`):
+- `minimize_switches` – prefer continuity with the existing outline, reordering only when essential.
+- `max_support` – prioritise sections that have the strongest evidence and citations, even if that reorders content.
+- `novelty_first` – surface newly added graph nodes or recently updated claims before legacy material.
+- `baseline_first` – reset to the canonical outline ordering for a grounding pass before refinements.
+
+Inputs, outputs, and fine-grained behaviour are configured in `article/config/loop.yaml`, while agent prompts live under `article/scripts/prompts/`.
 
 ## Repository Layout Highlights
 
-- `src/`: project code organised by processing stage (see `architecture.md`).
+- `src/`: project code organised by processing stage (see `docs/architecture/architecture.md`).
   - `sampling/`: tile selection and parquet builders for harmonics (`dataset_creation.py`) and embeddings (`dataset_preparation_embedding.py`, `convert_embeddings_to_dataframe.py`).
   - `features/`: Sentinel-2 harmonic feature extraction (`prepare_inference_feature.py`, `inference_feature.py`).
   - `training/`: Random Forest training scripts plus Slurm wrappers (`train_rf_selected_features.py`, `train_rf_embeddings.py`).
   - `inference/`: Tile-based RF inference for harmonics (`inference_rf_on_tiles.py`) and embeddings (`inference_rf_embeddings.py`).
   - `analysis/`, `qa/`, `reporting/`: downstream similarity studies, QA jobs, and reporting utilities.
-- `geefetch/configs/`: GEE download configs including yearly AlphaEarth YAMLs (`alphaearth_embeddings/`).
-- `jobs/`: Slurm launchers for data acquisition and QA, e.g. `jobs/alphaearth_embeddings/job_geefetch_alphaearth_embeddings_*.sh`.
+- `ops/geefetch/configs/`: GEE download configs including yearly AlphaEarth YAMLs (`alphaearth_embeddings/`).
+- `ops/jobs/`: Slurm launchers for data acquisition and QA, e.g. `ops/jobs/alphaearth_embeddings/job_geefetch_alphaearth_embeddings_*.sh`.
 - `article/`: LaTeX manuscript, figures, and tables referenced in the README.
 
 ## Environment Setup
@@ -60,22 +100,22 @@ Tune module versions to match system availability.
 
 ### Sentinel-2 Monthly Mosaics (Harmonic Pipeline)
 
-1. Copy an existing YAML (e.g. `geefetch/configs/config_corsica_20230415.yaml`) and adjust `data_dir`, temporal range, and AOI as needed.
-2. Submit the Geefetch job using a template such as `jobs/job_geeftech_20230115.sh`:
+1. Copy an existing YAML (e.g. `ops/geefetch/configs/config_corsica_20230415.yaml`) and adjust `data_dir`, temporal range, and AOI as needed.
+2. Submit the Geefetch job using a template such as `ops/jobs/job_geeftech_20230115.sh`:
 
 ```bash
-sbatch jobs/job_geeftech_20230115.sh
+sbatch ops/jobs/job_geeftech_20230115.sh
 ```
 
 Tiles are written per month under the specified `data_dir` and later stacked by `src/features/prepare_inference_feature.py`.
 
 ### AlphaEarth Embeddings (2017–2024)
 
-1. Choose the yearly config under `geefetch/configs/alphaearth_embeddings/`.
-2. Stage the Slurm wrapper from `jobs/alphaearth_embeddings/` and adjust output paths if required:
+1. Choose the yearly config under `ops/geefetch/configs/alphaearth_embeddings/`.
+2. Stage the Slurm wrapper from `ops/jobs/alphaearth_embeddings/` and adjust output paths if required:
 
 ```bash
-sbatch jobs/alphaearth_embeddings/job_geefetch_alphaearth_embeddings_2021.sh
+sbatch ops/jobs/alphaearth_embeddings/job_geefetch_alphaearth_embeddings_2021.sh
 ```
 
 Each job creates `/lustre/.../alphaearth_embeddings/<year>/` containing yearly 64-band GeoTIFF chips for the France AOI.
@@ -289,7 +329,7 @@ The script validates paths, sets optional `--rf-n-jobs`, and writes probability 
 
 ## Evaluation, QA, and Analysis
 
-- **National QA checks**: `bash qa/jobs/qa_corsica.sh` runs the standard QA workflow on benchmark tiles.
+- **National QA checks**: `bash ops/qa/jobs/qa_corsica.sh` runs the standard QA workflow on benchmark tiles.
 - **Embedding vs harmonic similarity**: `bash src/analysis/run_compute_embedding_harmonic_similarity.sh` computes ridge-based alignments; plotting utilities under `src/analysis/` reproduce the article heatmaps.
 - **Map comparison**: `src/comparison/compare_maps.py` evaluates RF outputs against reference layers (BD Forêt, DLT) and writes summaries for reporting.
 - **Post-processing**: `src/post-processing/classify_forest_types.py` and `compress_rf_probabilities.py` turn probability tiles into labelled or compressed products.
@@ -298,13 +338,16 @@ All metric CSV/JSON outputs land under `results/`, while diagnostic plots go to 
 
 ## Reproducing the Article
 
-- `article/article_v3.tex` is the latest manuscript. The supporting commands and artefacts are enumerated in `article_methods.json`, mapping each experiment to scripts, inputs, and outputs.
+- `article/manuscript/article.tex` is the latest manuscript. The supporting commands and artefacts are enumerated in `article_methods.json`, mapping each experiment to scripts, inputs, and outputs.
 - Figures referenced in the paper (national map, Corsica vignette, similarity charts) are generated by the pipelines above and stored under `article/images/` or `results/analysis_*`.
 
 ## Additional Resources
 
-- `AGENTS.md`: high-level contributor guidelines generated for coding agents.
-- `architecture.md`: detailed overview of the `src/` modules and workflow.
-- `PROGRESS.md`: running log of project milestones.
+- `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`: agent playbooks for coordinating code, writing, and automation tasks.
+- `docs/architecture/architecture.md`: detailed overview of the `src/` modules and workflow.
+- `ops/`: operational assets (GEE scripts, Geefetch configs, QA jobs, helper bash/python utilities).
+- `article/docs/`: writing frameworks (IMRaD, CCC/ABT, Toulmin, CARS, Gopen & Swan) plus deeper research notes.
+- `article/backbone/`: schemas and archives for narrative graphs, outlines, and previous LaTeX drafts.
+- `article/arxiv/`: cached PDFs/markdown summaries of cited foundation-model and remote-sensing work.
 
 For issues or clarifications, open a GitHub issue or contact the maintainers listed in the manuscript.

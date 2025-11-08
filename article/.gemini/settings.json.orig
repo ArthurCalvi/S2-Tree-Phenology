@@ -1,0 +1,8 @@
+{
+  "output": { "format": "json" },
+  "model": { "name": "gemini-2.5-pro", "maxSessionTurns": 12 },
+  "coreTools": ["Read","Memory"],
+  "excludeTools": ["Shell","Edit","WriteFile"],
+  "security": { "folderTrust": { "enabled": true } },
+  "sandbox": { "enabled": true }
+}

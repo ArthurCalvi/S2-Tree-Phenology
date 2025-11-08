@@ -1,0 +1,29 @@
+data_dir: /lustre/fsn1/projects/rech/ego/uyr48jk/mosaic_corsica_2023/20230415
+s2:
+  cloud_prb_threshold: 75 #par pixel
+  cloudless_portion: 5 #par tuile
+  selected_bands:
+  - B2
+  - B4
+  - B8
+  - B11
+  - B12
+  - MSK_CLDPRB
+satellite_default:
+  aoi:
+    spatial:
+      bottom: 6044000
+      epsg: 2154
+      left: 1155000
+      right: 1245000
+      top: 6237000
+    temporal:
+      end_date: '2023-04-30'
+      start_date: '2023-04-01'
+  composite_method: MEDIAN
+  dtype: UInt16
+  gee:
+    ee_project_id: phdforest
+    max_tile_size: 8
+  resolution: 10
+  tile_size: 10240 

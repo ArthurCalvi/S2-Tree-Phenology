@@ -1,0 +1,541 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Frontiers LaTeX template – v2 (2025-04-10)
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\documentclass[utf8]{FrontiersinHarvard}
+\usepackage{url,hyperref,lineno,microtype,subcaption,amsmath}
+\usepackage{natbib}
+\usepackage[onehalfspacing]{setspace}
+\usepackage{float}
+\usepackage{multirow}
+\linenumbers
+
+\def\keyFont{\fontsize{8}{11}\helveticabold}
+\def\firstAuthorLast{Calvi {et~al.}}
+\def\Authors{Arthur Calvi\,$^{1,*}$, Sarah Brood\,$^{2}$, Co-Author\,$^{1,2}$, OpenAI Codex\,$^{3}$, Anthropic Claude Code\,$^{4}$}
+\def\Address{$^{1}$ Laboratory X, Institute X, Department X, City X, Country X\\
+$^{2}$ Laboratory Y, Institute Y, Department Y, City Y, Country Y\\
+$^{3}$ OpenAI, San Francisco, CA, USA\\
+$^{4}$ Anthropic, San Francisco, CA, USA}
+\def\corrAuthor{Arthur Calvi}
+\def\corrEmail{email@uni.edu}
+
+\begin{document}
+\onecolumn
+\firstpage{1}
+
+\title[AlphaEarth embeddings for deciduous-evergreen mapping]{AlphaEarth Embeddings Deliver France-Wide Deciduous--Evergreen Maps Without GPU Overheads}
+
+\author[\firstAuthorLast]{\Authors}
+\address{}
+\correspondance{}
+
+\maketitle
+
+\begin{abstract}
+Remote sensing workflows face a compute versus craft dilemma: either engineer features with domain expertise or train deep networks on GPU infrastructure. Foundation embeddings promise a third path, but controlled benchmarks against carefully tuned baselines are lacking.
+We test whether precomputed AlphaEarth embeddings—state-of-the-art foundation models on Google Earth Engine—deliver superior features for phenological classification when classifiers and training data are held constant. Using deciduous–evergreen mapping in France as our controlled testbed, we train logistic regression (LR), linear support-vector machines (SVM), and Random Forests (RF) on 14.1 million pixels with two matched 14-dimensional feature sets: physics-informed harmonics (HARM) and AlphaEarth embeddings (EMB).
+Embeddings improve accuracy by $2.8 \pm 0.4$ percentage points and macro-F1 by $3.7 \pm 0.5$ across all classifiers. They halve calibration error (0.033 vs 0.059) and reduce map fragmentation by 68\,\%. A frozen 2023 model transfers to 2018–2022 with macro-IoU between 0.79 and 0.80. Gains concentrate in humid, mixed-stand mosaics where spatial context matters most; Mediterranean evergreen-dominated regions show minimal uplift.
+\textbf{The primary contribution of this work is a rigorous feature benchmark demonstrating that foundation embeddings provide superior features under fair experimental conditions.} The nationwide deciduous–evergreen map serves as the application proof: it shows that embedding advantages translate to operational deployment at national scale while also delivering an ecologically meaningful product. The operational bottleneck for agencies therefore shifts away from building complex models and toward their core expertise: curating high-quality ground-truth data.
+
+\keyFont{\section{Keywords:} foundation models, AlphaEarth embeddings, feature engineering, harmonic analysis, Random Forest, phenology, deciduous-evergreen}
+\end{abstract}
+
+\section{Introduction}
+
+% Teaser figure pinned within Introduction
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/sat_emb_classes.png}
+    \caption{Southeast France showing three views: (left) true-color satellite image; (middle) AlphaEarth embedding visualization (dimensions 46, 18, 5 as RGB) revealing phenological patterns without manual design; (right) classification map where orange shows deciduous forest and blue shows evergreen. Key observation: embeddings sharpen forest boundaries and separate adjacent stands that appear similar in temporal signals alone. This preview illustrates the core insight—embeddings encode spatial neighbourhood context that pixel-by-pixel harmonics miss.}
+    \label{fig:teaser_sat_emb_class}
+\end{figure}
+
+% Claim: Foundation embeddings provide superior features; deciduous mapping demonstrates this
+% Evidence: \citep{AlphaEarth2025,Cong2022,Szwarcman2024PrithviEO2}
+% Warrant: Controlled comparison isolates feature quality from model complexity
+% ABT Agreement: Time-series analysis is the accepted standard for vegetation mapping
+Foundation models promise to eliminate the feature-engineering bottleneck in Earth observation \citep{AlphaEarth2025,Cong2022,Szwarcman2024PrithviEO2}. \textbf{And} for over a decade, the remote sensing community has agreed that carefully designed time-series analysis—harmonic fits, phenological metrics, or spline smoothing—delivers robust vegetation maps when paired with lightweight classifiers \citep{Zhu2014,Zhao2019,Verbesselt2010a,Verbesselt2010b,Kennedy2010,Kennedy2018}. These approaches are interpretable, computationally accessible, and operationally proven. \textbf{But} they suffer a critical limitation: each pixel is modelled independently, ignoring neighbourhood context. In spatially heterogeneous landscapes where deciduous and evergreen stands intermingle at 10--100\,m scales, temporal features alone struggle to resolve boundaries. \textbf{Therefore}, pretrained embeddings—which encode both temporal dynamics and spatial context—offer a fundamentally different feature representation. \textbf{This paper answers a single question: do foundation embeddings deliver superior features when evaluated under fair experimental conditions?} We use deciduous-versus-evergreen forest mapping in France as our controlled testbed because the binary phenology distinction is ecologically unambiguous, immediately interpretable by stakeholders, and operationally relevant for carbon accounting, disturbance monitoring, and biodiversity reporting. \textbf{The goal is to prove that embeddings are superior features; the deciduous–evergreen map is the application that demonstrates this claim while also delivering an operationally useful product.} Our scientific contribution is a rigorous feature benchmark proving that AlphaEarth embeddings outperform hand-crafted harmonics when classifiers, training data, and dimensionality are held constant.
+
+% Claim: Embeddings offer third path by encoding spatial context
+% Evidence: AlphaEarth accessible via GEE, trained on multi-sensor inputs
+% Warrant: Spatial awareness separates embedding features from pixel-wise temporal models
+Bespoke remote sensing projects confront a compute versus craft dilemma. Physics-informed workflows fit harmonic curves to Sentinel-2 indices, extracting amplitudes, phases, and residual variances that summarise seasonal behaviour \citep{Inglada2017,Li2023,Bolton2020}. The descriptors are interpretable and appealing to domain experts, but the tuning effort scales with every ecoregion, sensor update, and disturbance regime. Deep networks promise automatic feature learning \citep{Low2020,Xie2024FoundationEffective}, yet they demand GPU clusters, large labelled datasets, and machine learning operations that many organisations cannot maintain.
+
+Foundation embeddings offer a third path. Pretrained models distributed through Google Earth Engine eliminate both local GPU requirements and fragile feature engineering. Effort concentrates on the one ingredient that cannot be outsourced: ground-truth labels. \textbf{The key technical advantage is spatial awareness.} Embeddings encode neighbourhood context alongside temporal patterns, allowing each pixel to incorporate information from its surroundings during inference. Harmonic descriptors model each pixel independently and cannot access this spatial information. Figure~\ref{fig:teaser_sat_emb_class} previews this advantage: embeddings sharpen boundaries between adjacent stands that appear similar in temporal curves alone.
+
+% Claim: AlphaEarth provides state-of-the-art embeddings but lacks controlled benchmarking
+% Evidence: \citep{AlphaEarth2025,Houriez2025AEFDataGen,Seydi2025AlphaEarthBurnedArea}
+% Warrant: No prior study has isolated embedding quality under matched experimental design
+AlphaEarth is a state-of-the-art foundation model for Earth observation \citep{AlphaEarth2025}. It learns from multiple sensors (Sentinel-1/2, Landsat, GEDI, climate data) and publishes annual 64-dimensional embeddings at 10\,m resolution through Google Earth Engine. Similar models (SatMAE, Prithvi-EO) demonstrate transfer learning across tasks \citep{Cong2022,Szwarcman2024PrithviEO2}. AlphaEarth has supported vegetation mapping and burned-area detection \citep{Houriez2025AEFDataGen,Seydi2025AlphaEarthBurnedArea}. However, \textbf{no study has benchmarked these embeddings against carefully tuned harmonics under controlled conditions—matched dimensionality, identical training data, and consistent classifiers.} Without such a comparison, claims about embedding superiority remain anecdotal.
+
+% Claim: Deciduous mapping demonstrates why better features matter operationally
+% Evidence: Copernicus DLT limitations, BD Forêt update lag
+% Warrant: Current products blur ecologically distinct classes, motivating feature improvement
+Deciduous-versus-evergreen phenology is an ideal testbed because existing operational products expose gaps that better features can address. Many agencies still rely on legacy inventories or continental products that update slowly. The Copernicus Dominant Leaf Type (DLT) map separates broadleaf from conifer but does not distinguish deciduous from evergreen broadleaf species; consequently, evergreen oaks in Mediterranean regions are grouped with conifers under the ``needle-leaved'' class \citep{EU2024a}. Visual comparison confirms this limitation: in Provence and coastal Mediterranean zones, sclerophyllous evergreen species such as \textit{Quercus ilex} (holm oak) systematically appear as ``needle-leaved'' in DLT despite being broadleaved trees, creating ecological misclassification that complicates biodiversity and carbon reporting. BD Forêt V2 provides detailed stand labels frozen to 2007–2018 field campaigns \citep{IGN2024}. Delivering current nationwide deciduous–evergreen maps therefore remains a bespoke exercise rather than a routine service. \textbf{If embeddings provide superior features, they should enable routine annual updates with minimal engineering overhead.}
+
+% Claim: National benchmark with Mediterranean as critical test case
+% Evidence: GRECO stratification, 14.1M pixels across eleven ecoregions
+% Warrant: Mediterranean boundary conditions stress-test the embedding advantage
+% CCC Complication: Representativeness is hard when labels are spatially biased
+We benchmark harmonics against embeddings across France using 14.1 million labelled pixels from four sources, grouped into 639 non-overlapping 2.5\,km tiles balanced across eleven ecoregions (Table~\ref{tab:greco_summary}). \textbf{Yet simply collecting labels nationwide is insufficient.} Reference datasets suffer spatial autocorrelation: field campaigns concentrate in accessible lowlands, lidar acquisitions favour commercial forests, and photo-interpreted polygons lag behind disturbances. \textbf{Therefore}, we stratify sampling with the GRECO ecoregional framework \citep{IGN2013GRECO} to ensure that Atlantic mosaics, Mediterranean shrublands, and montane belts contribute proportionally (Section~\ref{sec:greco}).
+
+\textbf{This design deliberately includes Mediterranean evergreen-dominated zones as a critical stress test.} In these regions—characterized by intense summer drought, homogeneous holm and cork oak maquis, and low seasonal contrast—spatial context may matter less than in heterogeneous temperate mosaics. \textbf{If embeddings derive their advantage primarily from encoding neighbourhood information, we expect large gains in Atlantic mixed stands and montane gradients where deciduous and evergreen intermingle at 10--100\,m scales, but minimal uplift in Mediterranean shrublands where phenological signals are uniformly weak and evergreen canopies dominate the landscape.} Foreshadowing this outcome now sets a clear boundary condition for when embeddings help and when they do not.
+
+We extract two 14-dimensional feature sets via recursive feature elimination: HARM contains physics-informed Sentinel-2 harmonic descriptors (amplitudes, phases, offsets); EMB contains selected AlphaEarth embedding dimensions. We train three lightweight classifiers on identical folds: logistic regression (LR), linear support-vector machines (SVM), and Random Forests (RF). Lightweight models isolate feature quality from model complexity.
+
+Our evaluation unfolds in two stages. First, we ensure a fair comparison between feature families: recursive feature elimination with cross-validation (RFECV) trims the harmonic descriptors to 14 components; we then apply the same procedure to the 64 embedding channels and retain the best 14 so both models operate under equal dimensionality. We train LR, SVM, and RF on each feature set to measure the overall gain that embeddings provide when everything else is held constant. Second, we focus on the top-performing classifier (RF) to probe spatial coherence, regional drivers, temporal transfer, and alignment with existing national products. This structure lets readers trace the story from balanced features, through global accuracy improvements, to operational viability.
+
+We measure accuracy, calibration, and spatial coherence through tile-grouped cross-validation. We correlate performance with environmental drivers (climate, soil, composition). We test temporal stability by applying a frozen 2023 model to 2018–2022 embeddings. We compare outputs against Copernicus DLT and BD Forêt V2. \textbf{Demonstrating these contrasts on a national deciduous–evergreen application shows how pretrained embeddings can democratise country-scale Earth observation: the primary challenge shifts from complex infrastructure and feature engineering to curating high-quality ground-truth data.}
+
+We hypothesise that precomputed embeddings deliver superior features while remaining operationally lightweight. The remainder of the paper presents methods, evidence, and operational implications.
+
+\section{Data and Methods}
+
+% CCC Complication: Building a nationally representative benchmark is challenging
+% Evidence: Spatial bias in label sources, confidence-coverage tradeoff
+% Warrant: Stratified design and data fusion are necessary to isolate feature quality
+\textbf{Our goal is to benchmark embedding features against harmonic features under controlled conditions.} Yet building a nationally representative dataset for such a comparison is challenging: reference datasets are spatially biased (field campaigns concentrate in accessible lowlands, lidar acquisitions favour commercial forests, photo-interpreted polygons lag disturbances), and label sources involve a fundamental confidence-versus-coverage tradeoff. High-confidence in-situ inventories are sparse; extensive mapped products carry lower taxonomic certainty and temporal lag. Simply pooling available datasets would over-represent lowland agricultural edges and under-sample Mediterranean shrublands or montane gradients. \textbf{Therefore}, we deliberately stratify sampling with the GRECO ecoregional framework and fuse four complementary label sources to ensure every major ecological gradient contributes proportionally. This design lets us isolate feature quality from sampling artifacts.
+
+Section~\ref{sec:greco} details the ecoregional stratification and label fusion strategy. The following subsections introduce the two feature sets (harmonics and embeddings), the recursive feature elimination that aligns their dimensionality, and the classifiers and metrics used to quantify gains and practical usability.
+
+\subsection{Study area and ecoregional stratification}
+\label{sec:greco}
+We need folds that cover the main ecological gradients of mainland France and Corsica so that any feature advantage holds nationally, not just in a handful of regions. Temperate lowlands, montane belts, and Mediterranean shrublands sit within short distances, so we rely on the eleven \emph{Grandes Régions Écologiques} (GRECO) defined by the French National Forest Inventory \citep{IGN2013GRECO}. These ecoregions distil the dominant climate and forest structure transitions—from Atlantic mixed forests through semi-continental plateaus to Mediterranean evergreen stands and Alpine massifs—and provide the scaffold for stratified sampling.
+
+We partition the national forest mask into 639 non-overlapping 2.5\,km\,$\times$\,2.5\,km tiles (Figure~\ref{fig:training_tiles}). Each tile must contain at least ten high-confidence reference pixels drawn from in-situ inventories or lidar-guided datasets; this ensures every fold is anchored by authoritative labels. Once that quota is reached we complete the tile with buffered BD Forêt V2 polygons so that both feature families share the same footprint for training. Tiles can touch but never overlap, which keeps cross-validation units distinct. The four reference sources—PureForest lidar stands, the RENECOFOR monitoring plots, the Tree Position Calibration campaign, and BD Forêt V2 polygons—are detailed in the next subsection.
+
+To produce unbiased national summaries we weight tiles to reflect each ecoregion’s forest area. For region \(r\) we compute an effective forest area \(A_r\) by multiplying the GRECO polygons by the mean forest cover ratio reported by the inventory and summing them to obtain \(\sum_j A_j\). With \(N\) labelled pixels overall and \(n_r\) drawn from region \(r\), the per-pixel weight becomes \(w_r = (A_r / \sum_j A_j) / (n_r / N)\). Regions that are under-represented in the sample (e.g., the Oceanic Southwest with 22\,\% of forest but 21\,\% of pixels) receive \(w_r > 1\); over-represented plains are down-weighted. We normalise the weights so that \(\sum_i w_i = N\), preventing dominant lowland regions from drowning out mountainous or Mediterranean tiles. The GRECO descriptors also provide ecological context for the regional analyses reported later (Table~\ref{tab:greco_summary}).
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{p{0.8cm}p{3.6cm}p{3.9cm}p{4.6cm}p{1.7cm}}
+        \toprule
+        \textbf{Code} & \textbf{Region (English name)} & \textbf{Climate and terrain} & \textbf{Dominant forest structure} & \textbf{Training pixels} \\
+        \midrule
+        A & Greater Crystalline and Oceanic West & Humid Atlantic plains and low hills, dense bocage networks & Oak–chestnut coppice with maritime pine and Sitka spruce plantations & 0.49\,M \\
+        B & Semi-Oceanic North Centre & Loess plateaus and chalk cuestas of the Paris Basin & Pedunculate/sessile oak with hornbeam or beech; Scots/Corsican pine on sandy soils & 2.39\,M \\
+        C & Greater Semi-Continental East & Ardennes and Lorraine uplands with colder winters & Beech–fir and spruce on mesic plateaus, mixed oak lowlands & 2.80\,M \\
+        D & Vosges & Steep crystalline range with high precipitation & Silver fir–beech high forests with spruce and Douglas-fir plantations & 0.39\,M \\
+        E & Jura & Limestone plateaus under cool montane climate & Calcareous beech–fir mosaics and mixed spruce on karst slopes & 0.20\,M \\
+        F & Oceanic Southwest & Landes coastal plain and Atlantic piedmont & Maritime pine estates interleaved with humid oak, alder, and chestnut stands & 2.91\,M \\
+        G & Central Massif & Volcanic plateaus and valleys with montane climate & Beech–fir belts, chestnut groves, Scots/Douglas pine on poorer soils & 1.92\,M \\
+        H & Alps & Sharp elevational gradients and deep glacial valleys & Deciduous foothills grading to spruce–larch–fir subalpine belts & 0.65\,M \\
+        I & Pyrenees & Atlantic–Mediterranean transition, steep valleys & Oak/beech foothills with fir–spruce upper slopes and Mediterranean pine on south-facing flanks & 0.56\,M \\
+        J & Mediterranean & Coastal ranges and plateaus with intense summer drought & Evergreen holm and cork oak maquis, Aleppo and maritime pine stands & 1.43\,M \\
+        K & Corsica & Crystalline massif with rugged relief & Lowland evergreen maquis and extensive Laricio pine forests above 900\,m & 0.35\,M \\
+        \bottomrule
+    \end{tabular}
+    \caption{Summary of the eleven GRECO ecoregions used for sampling and evaluation. Training pixel counts correspond to the supervised dataset and sum to 14.1 million samples (rounded to two decimals in millions).}
+    \label{tab:greco_summary}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.8\textwidth]{images/tiles_2_5_km_final_visualization.png}
+    \caption{Distribution of the 639 ecoregion-balanced training tiles. Warm colours indicate Mediterranean and montane ecoregions, while cool colours denote Atlantic and semi-continental domains. Each tile contains at least ten labelled pixels anchored by in-situ references and serves as an indivisible unit during cross-validation.}
+    \label{fig:training_tiles}
+\end{figure}
+
+\subsection{Reference labels}
+% CCC Complication: Nationally representative labels are hard to assemble
+% Evidence: Four complementary sources
+% Warrant: Fusion strategy balances confidence and coverage
+Building a nationally representative and unbiased training dataset is difficult. \textbf{The fundamental complication is that label availability is spatially autocorrelated and skewed:} field inventories deliver verified species identifications and high confidence \textit{but} cover sparse locations concentrated in accessible forests; photo-interpreted products span entire landscapes and deliver extensive training data \textit{but} carry lower taxonomic confidence and may lag temporal updates. Simply pooling available datasets would over-represent lowland agricultural edges and under-sample Mediterranean shrublands or montane gradients. \textit{Therefore}, we deliberately fuse four label sources—balancing confidence against coverage—to satisfy the ecoregional stratification requirements. High-confidence in-situ data (PureForest lidar stands, RENECOFOR plots, Tree Position Calibration) anchor each tile with authoritative ground truth (Section~\ref{sec:greco} mandates at least ten such pixels per tile), while broader mapped products (BD Forêt V2) fill spatial gaps and ensure every ecoregion contributes sufficient training pixels without regional bias. This fusion strategy lets us test both feature families under realistic operational constraints where perfect labels are unavailable but operational decisions still demand national coverage.
+
+The supervised dataset aggregates 14{,}086{,}937 forest pixels (10\,m resolution) from the following sources. (i) PureForest provides 135\,000 lidar-guided patches with expert-verified dominant species, mainly covering monospecific stands in southern France \citep{gaydon2024pureforestlargescaleaeriallidar}. (ii) The RENECOFOR long-term monitoring network supplies plot inventories with tree measurements above 15\,m height collected between 2019 and 2020 \citep{ulrich:hal-03444393}. (iii) The Tree Position Calibration campaign geolocates dominant trees with airborne lidar to refine field GPS positions and species attribution \citep{ONF,IGN_LiDARHD}. (iv) BD Forêt V2 contributes mapped stands (>5{,}000\,m$^2$) updated between 2005 and 2019 \citep{IGN2024}. A 100\,m negative buffer mitigates edge drift before rasterisation. Each pixel inherits its ecoregion and tile identifier; categorical attributes (phenology, genus, species, source, acquisition year) are encoded via consistent look-up tables. Deciduous pixels represent 75.5\,\% of the samples (10{,}639{,}124 pixels), evergreens 24.5\,\% (3{,}447{,}813 pixels). Buffered BD Forêt polygons supply 88.6\,\% of pixels, while in-situ inventories anchor 11.4\,\%, giving every ecoregion a mix of authoritative and widespread labels.
+
+\subsection{Feature extraction}
+
+We compare two complementary families of descriptors. Harmonic features encode seasonal cycles through hand-crafted sinusoidal fits, whereas AlphaEarth embeddings provide pretrained vectors that already mix temporal history with spatial neighbourhood context. The following subsections detail how each family is constructed before they are trimmed to matching dimensionality.
+\subsubsection{Sentinel-2 harmonic descriptors}
+We start from monthly median composites of Sentinel-2 Level-2A surface reflectances on Google Earth Engine. The s2cloudless probability mask (75\,\% threshold) and QA60 bits remove clouds; scenes with more than 95\,\% cloudy pixels are discarded. This delivers one clean snapshot per month without additional gap filling. We derive four spectral indices that respond to canopy properties: NDVI and EVI (chlorophyll and greenness), NBR (woody biomass and moisture), and the SWIR ratio CRSWIR (water content and lignin).
+
+Seasonal behaviour is summarised with a simple harmonic model. Deciduous forests in France complete one growth-and-senescence cycle per year, typically leaf-off for four to five months. We therefore fit two sine/cosine pairs per index: the first captures the annual component, the second captures a half-year component that models asymmetric spring green-up and autumn decline. Ordinary least squares estimates the coefficients, and phases are expressed through sine and cosine terms to avoid angle discontinuities. From each fit we retain offsets (mean level), amplitudes (seasonal intensity), phases (timing), and residual variance (departures due to disturbance or mixed pixels). These descriptors are purely temporal—each pixel is modelled independently without neighbourhood information.
+
+Figure~\ref{fig:harmonics_decomposition} illustrates the decomposition on NDVI. Recursive feature elimination (Section~\ref{subsubsec:rfe}) keeps 14 descriptors that balance interpretability and cross-validated accuracy (Supplementary Section~S1). They form the \textbf{HARM} feature set and represent what a well-crafted seasonal workflow can achieve without spatial context.
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{lp{0.62\textwidth}}
+        \hline
+        \textbf{HARM descriptor} & \textbf{Ecological signal} \\
+        \hline
+        NDVI first-harmonic amplitude & Seasonal strength of broadleaf greenness pulses \\
+        NDVI first-harmonic phase (cosine/sine) & Timing of green-up and senescence transitions \\
+        NDVI second-harmonic phase (sine) & Asymmetry between rapid spring and gradual autumn trajectories \\
+        NDVI offset & Mean canopy greenness throughout the year \\
+        NBR first-harmonic amplitude & Annual moisture and structural contrast between canopies and soil \\
+        NBR first-harmonic phase (cosine) & Calendar timing of minimum fuel moisture \\
+        NBR second-harmonic phase (cosine) & Secondary moisture cycle in bimodal climates \\
+        NBR offset & Average woody biomass signal \\
+        NBR residual variance & Short-term disturbance departures from harmonic behaviour \\
+        CRSWIR first-harmonic phase (cosine) & Timing of peak shortwave-infrared water stress \\
+        CRSWIR second-harmonic phase (cosine) & Recovery pattern of evergreen water content \\
+        CRSWIR offset & Mean canopy water and lignin content \\
+        CRSWIR residual variance & Fine-scale heterogeneity in SWIR response \\
+        \hline
+    \end{tabular}
+    \caption{Fourteen harmonic descriptors retained after ecoregion-balanced recursive feature elimination. Together they define the \textbf{HARM} feature set used in the Random Forest baseline. Higher values increase seasonal amplitude or evergreen likelihood depending on the index. Phases are represented via sine and cosine components to avoid angular discontinuities.}
+    \label{tab:harmonic14}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/harmonics_decomposition.png}
+    \caption{Harmonic decomposition of an NDVI annual curve. The first and second harmonics capture the asymmetric spring green-up and autumn senescence, while the residual component highlights departures linked to disturbance or mixed pixels. These interpretable pieces constitute the descriptors retained in \textbf{HARM}.}
+    \label{fig:harmonics_decomposition}
+\end{figure}
+
+\subsubsection{AlphaEarth embeddings}
+AlphaEarth learns 64-dimensional embeddings at 10\,m resolution from multi-sensor inputs: Sentinel-1/2, Landsat, GEDI structure, and ERA5-Land climate \citep{AlphaEarth2025}. The authors present the model as an embedding field that turns sparse labels into accurate global maps. During pretraining, masked spatio-temporal tokens are reconstructed so the network must infer missing observations from their surroundings. \textbf{Each embedding therefore stores temporal behaviour and neighbourhood structure.} This spatial awareness separates mixed forest patches that share similar temporal curves but differ in composition—something purely pixelwise harmonics cannot do.
+
+The embeddings are precomputed and distributed through Earth Engine. Practitioners use them as off-the-shelf features without training deep networks. We retrieved 2018, 2020, 2022, and 2023 embeddings and removed coastline artefacts. We aligned with HARM using an inner join on tile, row, and column indices so both feature families use identical pixels and weights. Recursive feature elimination (Section~\ref{subsubsec:rfe}) selected 14 embedding dimensions—46, 18, 5, 30, 39, 0, 57, 23, 6, 15, 13, 22, 11, and 24—which we reuse in all experiments and denote collectively as \textbf{EMB}. This setup lets us test whether a pretrained spatial representation maintains its advertised advantages when labels, folds, and models are held constant.
+
+\subsubsection{Recursive feature elimination}
+\label{subsubsec:rfe}
+To keep the comparison fair, both feature families undergo the same ecoregion-balanced recursive elimination. Starting from the full harmonic descriptor list (after circular transforms) or the 64 embedding channels, we train weighted Random Forests on each spatial fold, rank predictors by mean importance, and drop the weakest until performance plateaus. The 14-feature configuration maximises macro-F1 for both representations and defines the HARM and EMB subsets used throughout. Supplementary Section~S1 reports the full elimination schedule and ablations for alternative top-$K$ lists.
+
+\subsection{Experimental design}
+We structure the experiments so that feature contrasts remain fair and easy to interpret.
+\begin{enumerate}
+    \item \textbf{Feature selection parity.} We run RFECV on the harmonic descriptors first and observe that 14 components deliver the best balance between interpretability and cross-validated accuracy. We then apply the same procedure to the 64 embedding channels and also retain 14 dimensions. This ensures HARM and EMB operate under identical dimensionality.
+    \item \textbf{Model comparison.} With the two 14-D feature sets fixed, we train three lightweight classifiers—logistic regression, linear SVM, and Random Forest—on identical folds and weights. This stage quantifies the aggregate gain of embeddings over harmonics when model complexity is held constant.
+    \item \textbf{Focused analysis.} We select the best-performing classifier (the Random Forest on EMB) for deeper investigation. Follow-up experiments examine spatial coherence, regional drivers, temporal transfer (2018–2022 embeddings), and compatibility with legacy products, establishing whether embeddings provide operational value beyond raw accuracy.
+\end{enumerate}
+This overview aligns with the results sections: Section~\ref{sec:results} first reports the multi-model comparison, then drills into spatial and temporal behaviour using the selected classifier.
+
+\subsection{Classifier training, tuning, and cross-validation}
+We evaluate three lightweight classifiers on each feature family: logistic regression (LR), linear support-vector machines (SVM), and Random Forests (RF). This choice keeps modelling simple so that any performance gap reflects feature quality rather than model complexity; if embeddings prevail under these conditions, agencies can deploy them without deep learning infrastructure. Every model is trained with class-balanced sample weights on the same five ecoregion-balanced folds described above, ensuring that differences in performance arise from the feature representation rather than from split variability.
+
+Hyperparameters are selected with scikit-learn’s successive halving grid search. For each estimator we define a compact grid, evaluate candidates on progressively larger fractions of the harmonic dataset, and reuse the best configuration when fitting on the embeddings. This harmonics-first tuning strategy slightly favours the handcrafted baseline and therefore yields conservative estimates of the embedding gains. Logistic regression combines \texttt{StandardScaler} with an $\ell_2$ or elastic-net penalty (grid over $C\in\{0.01,0.1,1,10\}$ and $l_1$ ratios $\{0,0.5,0.9\}$) using the \texttt{saga} solver. The linear SVM applies the same scaling and explores hinge versus squared-hinge losses with $C\in\{0.01,0.1,1,10\}$. The Random Forest grid matches the original pipeline (50--100 trees, maximum depth 15--None, minimum split 15--60, minimum leaf 10--20), and the selected configuration uses 50 trees, maximum depth 30, minimum split 30, and minimum leaf 15. Logistic regression and the Random Forest provide calibrated probabilities used later for reliability analysis; the linear SVM contributes decision scores only. After hyperparameter selection, each model is retrained on the full weighted dataset (harmonics or embeddings) and the cross-validation artefacts—fold metrics, out-of-fold predictions, and fitted models—are archived for subsequent analysis.
+
+\subsection{Evaluation metrics and derived summaries}
+\label{sec:metrics}
+We evaluate three complementary aspects of performance.
+
+\textbf{Class balance and confusion.} Fold-level metrics include overall accuracy, class-specific precision/recall, macro-F1, weighted-F1, and the confusion matrix. Macro-F1 gives deciduous and evergreen equal weight so that gains on the majority class cannot hide losses on the minority class. Weighted-F1 reflects the observed class proportions and indicates what a large-scale rollout would experience in practice. Reporting the mean, standard deviation, and interquartile range across folds—and repeating the summaries with ecoregion weights—shows both national and regional consistency.
+
+\textbf{Class balance and F1 scores.} Macro-F1 and weighted-F1 quantify performance across deciduous and evergreen classes:
+\begin{equation*}
+    \mathrm{F1}_{\text{macro}} = \frac{1}{2} \sum_{c \in \{\text{dec}, \text{ever}\}} \mathrm{F1}_c,
+    \qquad
+    \mathrm{F1}_{\text{weighted}} = \sum_{c \in \{\text{dec}, \text{ever}\}} \frac{n_c}{N} \mathrm{F1}_c,
+\end{equation*}
+where \(n_c\) is the number of validation pixels for class \(c\) and \(N = n_{\text{dec}} + n_{\text{ever}}\).
+
+\textbf{Probability you can trust.} Many operational users adjust thresholds or combine probabilities with other decision rules. We therefore track calibration using 10 equal-width bins on the evergreen posterior (the Random Forest probability assigned to evergreen). For each bin \(b\) with sample set \(S_b\) we compute the mean confidence \(\hat{p}_b\) and the observed evergreen frequency \(\hat{y}_b\). The expected calibration error (ECE) measures average bin-wise discrepancy,
+\begin{equation*}
+    \mathrm{ECE} = \sum_{b=1}^{10} \frac{|S_b|}{N} \left| \hat{p}_b - \hat{y}_b \right|,
+\end{equation*}
+with \(N\) the total number of validation pixels. The maximum calibration error \( \mathrm{MCE} = \max_b \left| \hat{p}_b - \hat{y}_b \right| \) records the worst-case discrepancy. Low ECE and MCE mean stated confidences align with reality, which matters when analysts tighten thresholds (for example, to avoid evergreen false positives). We also report macro-F1 at thresholds 0.45 and 0.55 to confirm that modest adjustments do not destabilise performance.
+
+\textbf{Map texture.} Spatial coherence metrics, detailed below, evaluate how predictions behave in contiguous space—critical for map production.
+
+Spatial coherence is evaluated on the final mosaics tile by tile. Edge density measures how many metres of deciduous–evergreen boundary lie within a tile, normalised by tile area (km of edge per km$^2$); fewer edges mean smoother, less fragmented patches. Connected patch density uses an 8-neighbour definition (horizontal, vertical, and diagonal adjacency) to identify every contiguous cluster of forest pixels that share the same class. High patch density therefore signals salt-and-pepper artefacts, while low values indicate coherent stands. We label the binary masks for deciduous and evergreen pixels with a \(3\times3\) structure matrix of ones, yielding component counts \(C_{\text{dec}}\) and \(C_{\text{ever}}\). The corresponding densities are
+\begin{equation*}
+    D_{\text{dec}} = \frac{100\,C_{\text{dec}}}{A}, \qquad
+    D_{\text{ever}} = \frac{100\,C_{\text{ever}}}{A}, \qquad
+    D_{\text{tot}} = D_{\text{dec}} + D_{\text{ever}},
+\end{equation*}
+where \(A\) is the forest area (km$^2$) within the tile. When predictions are smooth, large coherent stands dominate and the component counts remain small, producing low densities; salt-and-pepper artefacts fragment stands into many tiny clusters, inflating \(D_{\text{tot}}\). We also gauge the effect of simple post-processing by applying a \(3 \times 3\) median filter to the harmonic predictions. Tile-level cross-validation predictions yield accuracy and macro-F1 per tile; we convert the embedding-minus-harmonic deltas to $z$-scores relative to the national distribution, categorising tiles into embedding advantage (\(z \ge +1\sigma\)), rough parity (\(|z| < 1\sigma\)), or harmonic advantage (\(z \le -1\sigma\)). Pearson and Spearman correlations between these deltas and contextual covariates underpin the heterogeneity analysis.
+
+\subsection{Ancillary tile context for heterogeneity analysis}
+To interpret spatial performance patterns we enrich each tile with topography, climate, soil, and class-composition attributes. Elevation, slope, and aspect statistics (mean, min, max, 90th percentile, standard deviation) are derived from the CGIAR-CSI SRTM v4 digital elevation model at 90\,m resolution \citep{Jarvis2008SRTM}. We summarise ERA5-Land monthly aggregated reanalysis for 2018, 2020, 2022, and 2023 \citep{MunozSabater2021ERA5Land}, computing annual means and extremes of 2\,m temperature, dew point, surface pressure, soil moisture, and total precipitation over each tile. Soil properties combine the OpenLandMap USDA texture mode at 250\,m \citep{Hengl2021OpenLandMap} with SoilGrids 2.0 mean and standard deviation of clay, sand, silt, bulk density, and soil organic carbon for the 0–5\,cm layer \citep{Poggio2021SoilGrids}. Finally, we aggregate the label parquet to count deciduous and evergreen pixels per tile, derive their ratios, and compute the Shannon diversity index over the two classes. The resulting dataset contains 86 covariates that underpin the tile-level heterogeneity analysis presented in the Results.
+
+\subsection{Temporal stability evaluation}
+Temporal transfer is evaluated by freezing the 2023 EMB random forest and applying it to the AlphaEarth embedding vintages released for 2022, 2020, and 2018. We reload the cross-validation manifest so that each labelled pixel keeps the fold identifier it had during training. This alignment serves two purposes: (i) it guarantees that the cross-year evaluations use exactly the same supervision set and ecoregion weights as the cross-validation runs, and (ii) it allows per-fold comparisons between the original out-of-fold predictions and the cross-year inference.
+
+For every evaluated year we emit the full metric bundle used in training: confusion matrices aggregated over all folds, fold-level tables, ecoregion summaries, per-pixel probabilities, and per-tile metrics. Intersection-over-Union (IoU) is derived from the confusion counts for each class \(c \in \{\text{dec}, \text{ever}\}\) as
+\begin{equation*}
+    \mathrm{IoU}_c = \frac{\mathrm{TP}_c}{\mathrm{TP}_c + \mathrm{FP}_c + \mathrm{FN}_c},
+\end{equation*}
+with \(\mathrm{TP}_c\), \(\mathrm{FP}_c\), and \(\mathrm{FN}_c\) defined relative to the reference labels (evergreen is the positive class). Macro-IoU averages the two classes with equal weight. IoU quantifies the overlap between the predicted evergreen/deciduous sets and their reference counterparts, complementing the precision/recall perspective. Alongside IoU we report the same accuracy and F1 statistics as for cross-validation; deltas are computed both against the 2023 inference baseline and the 2023 cross-validation reference to characterise year-to-year drift (Supplementary Tables~S4–S5). All artefacts are stored under \texttt{results/evaluation/embeddings\_<year>/}.
+
+\subsection{Embedding–harmonic similarity analysis}
+To understand whether embeddings simply compress harmonic information, we project each embedding dimension onto the full harmonic basis using ridge regression. For a given ecoregion and embedding channel \(k\), we assemble a response vector \(\mathbf{y}^{(k)} \in \mathbb{R}^n\) with one entry per pixel (standardised to zero mean and unit variance) and a design matrix \(\mathbf{X} \in \mathbb{R}^{n \times p}\) containing the \(p\) harmonic descriptors (also z-scored). Ridge regression estimates coefficients \(\hat{\boldsymbol{\beta}}^{(k)}\) by solving
+\begin{equation*}
+    \hat{\boldsymbol{\beta}}^{(k)} = \arg\min_{\boldsymbol{\beta}} \left\| \mathbf{y}^{(k)} - \mathbf{X}\boldsymbol{\beta} \right\|_2^2 + \lambda \|\boldsymbol{\beta}\|_2^2,
+\end{equation*}
+where the regularisation strength \(\lambda\) controls the amount of shrinkage applied to the coefficients. We select \(\lambda\) through RidgeCV on a logarithmic grid (20 values between \(10^{-4}\) and \(10^{4}\)), using a GroupKFold split that keeps tiles intact so that no tile contributes to both training and validation folds. Because \(\lambda\) is merely a stabilising hyperparameter—and different embedding channels prefer different values—we do not report it explicitly in the Results; instead we focus on what the fitted models reveal (variance explained and dominant harmonic cues).
+
+We evaluate how well harmonics can linearly approximate embeddings by measuring the variance in each embedding channel explained by the harmonic features. For each embedding dimension \(k\), we fit a ridge model predicting that dimension from all harmonic descriptors, then compute the coefficient of determination \(R^2\) on held-out tiles. An \(R^2\) near 1 would mean harmonics fully reconstruct the embedding; \(R^2\) near 0 indicates orthogonal information; negative \(R^2\) means the linear model performs worse than a simple mean baseline. We report the mean \(R^2\) across all tiles (ecoregion-weighted) and across all 14 selected embedding channels. Negative mean \(R^2\) confirms that embeddings are not linear recombinations of harmonics.
+
+To interpret the fitted coefficients we normalise \(\hat{\boldsymbol{\beta}}^{(k)}\) by their $\ell_1$ norm and record the harmonic descriptor with the largest absolute weight; we also compute Pearson correlations between \(\mathbf{y}^{(k)}\) and each harmonic feature, retaining the largest-magnitude correlation as a complementary cue. Detailed coefficient tables, $R^2$ distributions, and tile-level diagnostics appear in Supplementary Section~S3.
+
+\section{Results}
+\label{sec:results}
+We present four groups of findings: national accuracy and calibration, ecoregional behaviour, spatial/ancillary heterogeneity, and cross-year robustness, before comparing the maps with existing national products.
+\subsection{Accuracy and calibration}
+First, we test whether embeddings match or exceed harmonic accuracy and calibration under identical conditions. The harmonic subset \textbf{HARM} groups amplitudes, phases, offsets, and residual variances from the four Sentinel-2 indices described in Table~\ref{tab:harmonic14}, while the embedding subset \textbf{EMB} retains the 14 AlphaEarth channels that survived the same recursive elimination.
+
+Across the three classifiers—logistic regression (LR), linear support-vector machines (SVM), and Random Forests (RF)—embeddings consistently outperform harmonics (Table~\ref{tab:multi_model_cv}). Accuracy rises by \(2.8 \pm 0.4\) percentage points and macro-F1 by \(3.7 \pm 0.5\) points on average, with every estimator favouring EMB.
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{lcccc}
+        \toprule
+        \textbf{Estimator} & \textbf{Accuracy (HARM)} & \textbf{Accuracy (EMB)} & \textbf{Macro-F1 (HARM)} & \textbf{Macro-F1 (EMB)} \\
+        \midrule
+        Logistic regression & 0.883 & \textbf{0.915} & 0.851 & \textbf{0.893} \\
+        Linear SVM & 0.886 & \textbf{0.915} & 0.854 & \textbf{0.893} \\
+        Random Forest & 0.904 & \textbf{0.927} & 0.874 & \textbf{0.905} \\
+        \midrule
+        Mean & 0.891 & \textbf{0.919} & 0.860 & \textbf{0.897} \\
+        \bottomrule
+    \end{tabular}
+    \caption{Cross-validated accuracy and macro-F1 for three classifiers trained on harmonic (HARM) and embedding (EMB) feature sets. Higher values are better for both metrics; embeddings consistently win across classifiers even though hyperparameters were tuned on HARM first. Means average the three estimators.}
+    \label{tab:multi_model_cv}
+\end{table}
+
+The consistency across classifiers confirms that the gains stem from feature quality, not model choice. These improvements hold despite tuning hyperparameters on HARM first—a conservative bias that favors the baseline.
+
+The Random Forest retains the strongest individual scores, reaching \(0.926 \pm 0.0059\) accuracy (interquartile range 0.922–0.932) compared with \(0.904 \pm 0.0059\) for HARM, and lifting macro-F1 from \(0.874 \pm 0.0099\) to \(0.905 \pm 0.0027\). Embeddings also reduce fold-to-fold variance, shrinking the Random-Forest macro-F1 standard deviation from 0.0099 to 0.0027. These national gains vary meaningfully across ecoregions (Table~\ref{tab:regional_performance}).
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{lrrrrrr}
+        \toprule
+        \textbf{GRECO region} & $\mathrm{OA}_{\mathrm{H}}$ & $\mathrm{OA}_{\mathrm{E}}$ & $\Delta\mathrm{OA}$ (pp) & $\mathrm{F1}_{\mathrm{H}}$ & $\mathrm{F1}_{\mathrm{E}}$ & $\Delta\mathrm{F1}$ (pp) \\
+        \midrule
+        France (weighted CV) & 0.904 $\pm$ 0.006 & \textbf{0.926 $\pm$ 0.006} & \textbf{+2.3} & 0.874 $\pm$ 0.010 & \textbf{0.905 $\pm$ 0.003} & \textbf{+3.1} \\
+        Central Massif (C) & 0.895 & \textbf{0.928} & \textbf{+3.3} & 0.887 & \textbf{0.923} & \textbf{+3.6} \\
+        Oceanic Southwest (F) & 0.925 & \textbf{0.951} & \textbf{+2.6} & 0.867 & \textbf{0.933} & \textbf{+6.5} \\
+        Semi-Oceanic North Centre (B) & 0.937 & \textbf{0.956} & \textbf{+1.9} & 0.856 & \textbf{0.899} & \textbf{+4.3} \\
+        Alps (H) & 0.869 & \textbf{0.895} & \textbf{+2.6} & 0.854 & \textbf{0.877} & \textbf{+2.2} \\
+        Vosges (D) & 0.880 & \textbf{0.907} & \textbf{+2.7} & 0.840 & \textbf{0.875} & \textbf{+3.5} \\
+        Greater Crystalline and Oceanic West (A) & 0.873 & \textbf{0.923} & \textbf{+5.0} & 0.815 & \textbf{0.883} & \textbf{+6.8} \\
+        Greater Semi-Continental East (C$^\prime$) & 0.952 & \textbf{0.960} & \textbf{+0.9} & 0.810 & \textbf{0.851} & \textbf{+4.1} \\
+        Mediterranean (J) & 0.811 & \textbf{0.818} & \textbf{+0.7} & 0.791 & \textbf{0.798} & \textbf{+0.7} \\
+        Jura (E) & 0.882 & \textbf{0.921} & \textbf{+3.8} & 0.775 & \textbf{0.794} & \textbf{+1.9} \\
+        Pyrenees (I) & 0.930 & \textbf{0.957} & \textbf{+2.7} & 0.775 & \textbf{0.883} & \textbf{+10.8} \\
+        Corsica (K) & 0.654 & \textbf{0.675} & \textbf{+2.1} & 0.554 & \textbf{0.642} & \textbf{+8.8} \\
+        \bottomrule
+    \end{tabular}
+    \caption{Cross-validated overall accuracy (OA) and macro-F1 for the harmonic (HARM) and embedding (EMB) feature sets across GRECO ecoregions. Higher values are better. Embeddings deliver the largest gains in mixed Atlantic mosaics (Greater West: +6.8\,pp macro-F1) and steep mountain gradients (Pyrenees: +10.8\,pp), while Mediterranean convergence (+0.7\,pp) reflects low seasonal contrast. All folds use identical ecoregion weights and tile assignments.}
+    \label{tab:regional_performance}
+\end{table}
+
+This regional pattern makes sense: spatial context helps most where deciduous and evergreen mix at short range.
+
+Beyond raw accuracy improvements, embeddings demonstrate superior calibration quality. The expected calibration error drops from 0.0586 (HARM) to 0.0335, and the maximum calibration error halves from 0.184 to 0.114. This calibration stability translates to operational robustness: macro-F1 remains steady when the decision threshold shifts within \([0.45,0.55]\), varying by only 0.003 for embeddings versus 0.009 for harmonics. These characteristics simplify deployment, particularly when analysts need to adjust thresholds for high-variance deciduous regions.
+
+\subsection{Regional Performance Patterns}
+
+Performance varies meaningfully across ecoregions (recall Table~\ref{tab:greco_summary} for ecological context), reflecting forest composition and phenological complexity. Table~\ref{tab:regional_performance} shows that EMB delivers the largest macro-F1 gains in Atlantic mosaics (Greater Crystalline and Oceanic West: +6.8\,pp; Oceanic Southwest: +6.5\,pp) and mountainous regions (Pyrenees: +10.8\,pp; Corsica: +8.8\,pp), where mixed stands and steep gradients challenge purely temporal descriptors. These uplifts mirror the GRECO descriptions (Table~\ref{tab:greco_summary}): the Armorican bocage (Region A) alternates humid oak–chestnut forests with post-war conifer plantations, while the Pyrenean chain (Region I) juxtaposes deciduous foothills with evergreen montane belts within a few hundred metres of elevation. Central Massif and the semi-oceanic North (Regions C and B) each gain about 3–4\,pp, consistent with their heterogeneous oak–hornbeam mosaics and scattered Scots pine estates. Mediterranean forests remain the hardest case: both models converge around \(0.80\) macro-F1 with a slim +0.7\,pp uplift, reflecting the drought-adapted evergreen broadleaf stands of Region J where seasonal amplitude is inherently low.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/France_Map_emb.png}
+    \caption{France 2023 deciduous--evergreen map from the embedding model (EMB). Orange denotes deciduous, cyan denotes evergreen; the inset shows Corsica. Spatial patterns match major ecological gradients: evergreen dominance along Mediterranean and Atlantic pine regions (Landes) and at higher elevations (Alps, Jura, Vosges), with deciduous prevalence across lowland temperate belts. Compared to hand-designed features, embeddings yield smoother, more coherent patches while preserving sharp transitions.}
+    \label{fig:national_map}
+\end{figure}
+
+\subsection{Spatial coherence and environmental drivers}
+Second, we examine whether embeddings produce smoother maps and whether gains correlate with environmental gradients. Using the densities defined in Section~\ref{sec:metrics}, national edge density drops from 6.69 to 2.76\,km\,km\(^{-2}\) when switching from HARM to EMB, a 59\,\% reduction. The median total patch density \(D_{\text{tot}}\) falls from 6.81\,k to 2.16\,k components per 100\,km² (−68\,%), indicating far fewer tiny clusters. The largest smoothing occurs in maritime pine mosaics (Greater Crystalline and Oceanic West), where the harmonic map fragments mixed stands into speckled artefacts. EMB also maintains crisp elevational boundaries in the Alps, Jura, and Vosges, while matching National Forest Inventory proportions (64.4\,\% deciduous, 35.6\,\% evergreen; Figure~\ref{fig:national_map}). Table~\ref{tab:coherence_summary} summarises the national reduction in edge and patch densities, with supplementary Table~S3 providing the full statistics including the median-filter baseline.
+
+Figure~\ref{fig:h2_multiscale} visualises these differences across five representative tiles. Each row pairs a Sentinel-2 chip (left) with the embedding and harmonic predictions (middle and right). The rows cover GRECO letters G (Greater Semi-Continental East), C (Corsica), A (Alps), O (Oceanic Southwest), and the Central Massif. Embeddings preserve large deciduous blocks (amber, \#e3712c) and evergreen belts (azure, \#2693c1) with minimal speckle; the harmonic counterpart produces many 1–2 pixel patches, consistent with its higher \(D_{\text{tot}}\). Additional summaries, including the effect of median filtering, appear in Supplementary Table~S3 and `results/analysis_coherence/coherence_summary.csv`.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/figure4_h2_panel.png}
+    \caption{Five representative tiles (rows) showing the 2023 Sentinel-2 composite (left), EMB prediction (middle), and HARM prediction (right). Orange = deciduous (\#e3712c) and cyan = evergreen (\#2693c1). Key observation: embeddings preserve large coherent stands in Atlantic mosaics (rows G and O) and maintain sharp alpine and Corsican belts (rows A and C), while the harmonic baseline introduces speckled artefacts and broken edges. This smoothness arises because each embedding pixel encodes spatial context from neighbouring pixels, whereas harmonics model every pixel independently.}
+    \label{fig:h2_multiscale}
+\end{figure}
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{lccc}
+        \toprule
+        \textbf{Metric} & \textbf{HARM} & \textbf{EMB} & \textbf{Relative change} \\
+        \midrule
+        Median edge density (km\,km\(^{-2}\)) & 6.69 & \textbf{2.76} & −59\,\% \\
+        Median patch density (per 100\,km\(^2\)) & 6\,810 & \textbf{2\,159} & −68\,\% \\
+        \bottomrule
+    \end{tabular}
+    \caption{National spatial coherence metrics aggregated over the 639 evaluation tiles. Lower values are better. Embeddings cut edge clutter by 59\,\% and patch fragmentation by 68\,\%, yielding maps that better match stand structure.}
+    \label{tab:coherence_summary}
+\end{table}
+
+For agencies this means the raw embedding map already meets stand-level coherence targets without additional filtering.
+
+\subsubsection{Tile-level heterogeneity and ancillary drivers}
+
+Tile-level analysis confirms that most areas behave consistently across feature sets. The GRECO-balanced grid contains 639 tiles; 612 satisfy the label-density requirement and enter the tile-level evaluation. Within that subset, 83\,\% (510 tiles) fall within \(|z| < 1\sigma\) for accuracy differences, 14\,\% (89 tiles) exhibit a marked embedding advantage with mean Δaccuracy +12.6\,pp, and only 2\,\% (13 tiles) favour harmonics (mean −13.0\,pp). Embedding wins concentrate in Atlantic and western ecoregions where clay-rich soils, high deciduous ratios, and cooler/wetter ERA5 conditions prevail; correlations reach \(r=0.17\) with clay fraction, \(r=0.13\) with deciduous share, and \(r=-0.10\) with the ERA5 temperature range. Greater Crystalline and Oceanic West displays the highest share of advantage tiles (41\,\%) followed by Vosges (31\,\%) and Corsica (33\,\%), while the Mediterranean basin records the largest proportion of harmonic-favoured tiles (12\,\%). Table~\ref{tab:tile_buckets} summarises the distribution, and ecoregion summaries (Supplementary Figure~S7) show that Greater Crystalline and Oceanic West gains \(+9.3\)\,pp average accuracy whereas the Mediterranean averages \(+0.9\)\,pp, reinforcing the idea that spatial context helps most in humid, mixed-stand mosaics and contributes modestly in evergreen-dominated shrublands.
+
+The ancillary dataset enables a focused follow-up on the 89 embedding-advantaged tiles: we quantify which covariates (soil texture, moisture regime, diversity indices) best explain the observed lifts.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/embedding_harmonic_driver_dual.png}
+    \caption{Relative covariate shifts for tiles with strong embedding gains (top row, \(z \ge +1\sigma\)) and harmonic gains (bottom row, \(z \le -1\sigma\)) compared with parity tiles. Left panels show percent deviations relative to parity means; right panels report Spearman correlations with Δaccuracy. Positive bars indicate that the attribute is higher in advantage tiles. Embedding gains cluster in wetter, more diverse mosaics (rainfall +2.1\%, Shannon diversity +24\%, narrower temperature range −1.4\%), whereas harmonic wins emerge in dry, evergreen-dominated tiles (rainfall −10\%, deciduous share −49\%, wider temperature range +2.2\%). This environmental contrast explains the regional performance patterns in Table~\ref{tab:regional_performance}.}
+    \label{fig:driver_deltas}
+\end{figure}
+
+Figure~\ref{fig:driver_deltas} confirms that the embedding subset sits in wetter-than-average tiles (ERA5 rainfall +2.1\,\%), with higher canopy diversity (+24\,\% Shannon index) and only a weak reduction in deciduous share (−2\,\%). It also shows a slightly narrower annual temperature range (−1.4\,\%; \(\rho = -0.16\)), consistent with smoother seasonal dynamics. Harmonics achieve their rare wins in markedly drier pixels (−10\,\% rainfall) where evergreen dominance is much stronger (−49\,\% deciduous share, \(\rho = +0.22\)) and seasonal temperature swings are amplified (+2.2\,\%; \(\rho = +0.47\)). These shifts emphasise that embedding advantages stem from wetter, heterogeneous mosaics, whereas harmonics perform best in dry evergreen stands with pronounced seasonal forcing.
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{lccc}
+        \toprule
+        \textbf{Tile bucket} & \textbf{Count} & \textbf{Share (\%)} & \textbf{Mean Δaccuracy (pp)} \\
+        \midrule
+        Embedding advantage (\(z \ge +1\sigma\)) & 89 & 14.5 & +12.6 \\
+        Harmonic win (\(z \le -1\sigma\)) & 13 & 2.1 & −13.0 \\
+        Rough parity (\(|z| < 1\sigma\)) & 510 & 83.3 & +1.4 \\
+        \bottomrule
+    \end{tabular}
+    \caption{Distribution of tile-level performance buckets derived from cross-validated predictions (612 tiles with sufficient training labels). Most tiles (83.3\%) sit near parity. Embeddings dominate the advantage bucket (14.5\%), gaining +12.6\,pp in Atlantic and montane zones, while harmonic wins (2.1\%) concentrate in Mediterranean shrublands. Positive values favour embeddings.}
+    \label{tab:tile_buckets}
+\end{table}
+
+\subsection{Temporal robustness and legacy alignment}
+Third, we test whether a frozen 2023 model transfers to past years and stays compatible with existing national products.
+
+% Claim: Frozen 2023 model transfers well to past years
+% Evidence: Temporal stability metrics, macro-IoU 0.786-0.801
+% Warrant: Performance degradation localises to known disturbance regions
+Applying the 2023 EMB model to earlier AlphaEarth embeddings yields accuracies of 0.940 (2018), 0.938 (2020), and 0.935 (2022). These values sit within 1.5 standard deviations of the 2023 cross-validation mean (0.926) and trail the 2023 inference baseline by 3.8–5.4\,pp in macro-F1. The largest year-on-year degradation occurs in Corsica (Region K, −0.16\,pp macro-F1 in 2018) and along the Mediterranean coast (≈−0.07\,pp), consistent with documented disturbance events including the severe 2017 Corsican wildfire season and the 2018–2019 Mediterranean drought anomaly \citep{EU2024FireInfo,MeteoFrance2019}.\footnote{The European Forest Fire Information System (EFFIS) reported over 1,700 hectares burned in Corsica during summer 2017, while Météo-France documented the 2018 summer as one of the driest on record for Mediterranean France.} Spatial analysis of tile-level performance degradation confirms that IoU dips localise to fire-affected Corsican communes and drought-stressed Mediterranean coastal zones, providing direct evidence that model errors track genuine landscape change rather than algorithmic drift. Continental regions—Vosges, Jura, Central Massif—remain within −0.05\,pp. These results indicate that the frozen Random Forest generalises well across annual embeddings, with performance largely governed by the quality of the embedding vintage (Supplementary Tables~S4–S5). Table~\ref{tab:temporal_stability} summarises the year-by-year metrics. Across the ten-tile cohort used for Figures~\ref{fig:h2_multiscale} and \ref{fig:h3_temporal}, the macro intersection-over-union (IoU) between the 2023 map and earlier vintages ranges from 0.786 (2018) to 0.801 (2022), with deciduous IoU consistently above 0.83—confirming that inter-annual drift is modest even in spatially heterogeneous sites.
+
+Figure~\ref{fig:h3_temporal} illustrates the temporal behaviour for three representative tiles (G, O, C). Each column shows the Sentinel-2 composite for a given year (top row) alongside the corresponding EMB prediction (bottom row). Colour conventions match Figure~\ref{fig:h2_multiscale}. Despite varying illumination and disturbance cues, the embedding model preserves deciduous and evergreen patches across years, with the largest deviations occurring in the Corsican tile (row C) where post-fire succession alters the canopy mix between 2018 and 2020.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/figure5_h3_panel.png}
+    \caption{Three GRECO tiles (rows G, O, C) observed across 2018, 2020, 2022, and 2023 (columns). Each column pairs the Sentinel-2 composite (top) with the EMB prediction (bottom) using the manuscript palette (deciduous \#e3712c, evergreen \#2693c1). Key finding: deciduous patches and evergreen belts remain stable through the 2020--2022 drought years, with the largest shifts occurring in Corsica (row C) where post-fire succession alters the canopy between 2018 and 2020. This robustness enables multi-year reanalysis with a single model.}
+    \label{fig:h3_temporal}
+\end{figure}
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{lccccc}
+        \toprule
+        \textbf{Year} & \textbf{Source} & \textbf{Accuracy} & \textbf{Macro-F1} & \textbf{ΔF1 vs 2023 (pp)} & \textbf{IoU (macro)} \\
+        \midrule
+        2018 & Inference & 0.940 & 0.912 & −3.8 & 0.786 \\
+        2020 & Inference & 0.938 & 0.917 & −4.4 & 0.796 \\
+        2022 & Inference & 0.935 & 0.905 & −4.3 & 0.801 \\
+        2023 & Cross-validation & 0.927 & 0.897 & −5.5 & -- \\
+        2023 & Inference baseline & \textbf{0.969} & \textbf{0.951} & \textbf{0.0} & \textbf{1.000} \\
+        \bottomrule
+    \end{tabular}
+    \caption{Temporal evaluation of the 2023 Random Forest applied to AlphaEarth embeddings from different years. Higher values are better for accuracy and macro-F1. The frozen model maintains macro-F1 within 5 percentage points of the 2023 inference baseline, and macro-IoU remains between 0.786 and 0.801. Degradation concentrates in fire- and drought-affected regions (Corsica, Mediterranean), consistent with genuine canopy change. Metrics are computed with the identical inference pipeline; deltas are expressed in percentage points relative to the 2023 inference baseline. Macro-IoU compares each vintage against the 2023 inference map over the ten tiles used in Figures~\ref{fig:h2_multiscale} and \ref{fig:h3_temporal}.}
+    \label{tab:temporal_stability}
+\end{table}
+
+Performance dips line up with the 2018 Corsican fires and Mediterranean drought years, indicating that remaining errors stem from genuine canopy change rather than model drift.
+
+\subsubsection{Legacy products}
+
+When compared against Copernicus DLT (broadleaf vs conifer) and BD Forêt V2 (deciduous vs evergreen polygons), the embedding map matches the harmonic baseline nationally: overall accuracy is 0.628 vs DLT and 0.638 vs BD Forêt, with macro-F1 differences below 0.4 percentage points (Table~\ref{tab:product_comparison_national}). Regional deltas follow the expected pattern—larger disagreements along recently disturbed Atlantic stands and Mediterranean shrublands where reference products either lag in time (BD Forêt) or do not separate evergreen broadleaf (DLT). Embeddings therefore improve internal consistency without breaking compatibility with incumbent datasets (Supplementary Section~S9).
+
+\begin{table}[H]
+    \centering
+    \small
+    \caption{National agreement with existing products (forest pixels only). Higher values are better. Embeddings maintain compatibility with Copernicus DLT and BD Forêt (Δmacro-F1 < 0.4 pp) while improving internal coherence relative to HARM. Metrics derive from aggregated confusion counts over the ecoregion grid.}
+    \begin{tabular}{lccc}
+        \toprule
+        \textbf{Comparison} & \textbf{Overall accuracy} & \textbf{Cohen's $\kappa$} & \textbf{Macro-F1} \\
+        \midrule
+        HARM vs DLT & 0.627 & 0.17 & 0.578 \\
+        EMB vs DLT & 0.628 & 0.16 & 0.574 \\
+        HARM vs BD Forêt & 0.639 & 0.17 & 0.585 \\
+        EMB vs BD Forêt & 0.638 & 0.16 & 0.582 \\
+        \bottomrule
+    \end{tabular}
+    \label{tab:product_comparison_national}
+\end{table}
+
+This confirms that agencies can adopt embeddings without breaking alignment with existing reporting products, while benefiting from smoother maps.
+
+Qualitatively, embeddings reduce speckle in mixed mosaics such as the Landes maritime pine plantations and Corsican Castagniccia chestnut groves, while DLT and BD Forêt retain their strengths in planted conifer estates and mature deciduous stands (Figure~\ref{fig:comparison_products}). These products remain complementary: our annual map reflects the current canopy state, whereas DLT and BD Forêt provide longer-term typologies.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{images/Comparison_dlt_bdforet_harmonic_embedding.png}
+    \caption{Three sites (rows) across five sources (columns): Sentinel-2 reference, HARM, EMB, BD Forêt V2, and Copernicus DLT. Orange = deciduous (broadleaf for DLT); cyan = evergreen (conifer for DLT). Observation: embeddings reduce the isolated pixels apparent in HARM (Landes row) while matching BD Forêt structure in managed stands (Fontainebleau). DLT merges evergreen broadleaf with conifers (Corsica row), highlighting limitations of legacy taxonomies.}
+    \label{fig:comparison_products}
+\end{figure}
+
+Figure~\ref{fig:comparison_products} highlights a consistent behavior: embeddings encode neighborhood context, yielding smoother, more coherent class patches without isolated pixels, while harmonic features provide crisp pixelwise decisions that can appear speckled at fine scales. Simple post‑processing (e.g., median filtering) narrows this gap for harmonics, but embedding‑based inference attains similar regularization intrinsically.
+
+\subsection{Embeddings capture non-linear information absent in harmonics}
+
+To interpret what the embeddings retain from traditional descriptors we projected each embedding dimension onto the harmonic feature space using ridge regression. Across all GRECO regions the mean out-of-sample \(R^2\) remains negative (from −0.31 in the Alps to −0.90 in the Pyrenees). \textbf{A negative \(R^2\) indicates that a linear model fits the data worse than a simple horizontal line representing the mean of the target variable.} When \(R^2\) falls below zero, the sum of squared residuals from the fitted model exceeds the total sum of squares around the mean—meaning the model actively degrades prediction quality relative to the simplest possible baseline. In this context, attempting to reconstruct an embedding dimension from a linear combination of harmonic features produces predictions that are systematically farther from the true embedding values than a naive horizontal line at the mean. \textbf{This result provides strong evidence that embeddings contain significant non-linear structure that cannot be approximated by any linear combination of harmonic features.} The information captured by embeddings is fundamentally non-linear and orthogonal to the explicit sinusoidal components extracted from pixel-wise temporal curves; embeddings encode spatial neighbourhood context and multi-scale patterns that harmonic decomposition—by design—cannot represent.
+
+Although global reconstruction fails, the normalized ridge coefficients reveal which harmonic families the embeddings lean on. Averaged over regions, almost half of the coefficient mass targets spectral offsets—especially the CRSWIR ratio—while first-harmonic amplitudes account for a further 23\,\%, residual variances 16\,\%, and phase terms 11\,\%. The nearest-neighbour analysis shows that 57 out of 154 embedding dimensions align most strongly with CRSWIR offsets, 33 with NBR first-harmonic amplitudes, and 27 with NDVI amplitudes. This echoes the ecoregional behaviour: mountainous regions (Vosges, Jura, Central Massif) emphasise structural moisture cues (CRSWIR offsets), Atlantic mosaics emphasise moisture-driven amplitude contrasts (NBR amplitude), and Mediterranean/Corsican regions highlight NDVI amplitude differences between evergreen maquis and deciduous stands.
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabular}{lcc}
+        \toprule
+        \textbf{Region (GRECO)} & \textbf{Mean $R^2$} & \textbf{Dominant harmonic cue} \\
+        \midrule
+        Alps (H) & −0.31 & NDVI amplitude (seasonal vigor) \\
+        Central Massif (C) & −0.32 & CRSWIR offset (baseline moisture) \\
+        Corsica (K) & −0.72 & CRSWIR offset (baseline moisture) \\
+        Grand Ouest (A) & −0.35 & NBR amplitude (moisture contrast) \\
+        Grand Est (C$^\prime$) & −0.56 & NBR offset (woody baseline) \\
+        Jura (E) & −0.72 & CRSWIR offset (baseline moisture) \\
+        Mediterranean (J) & −0.49 & NBR amplitude (moisture contrast) \\
+        Sud-Ouest (F) & −0.87 & NDVI amplitude (seasonal vigor) \\
+        Pyrenees (I) & −0.90 & CRSWIR offset (baseline moisture) \\
+        Semi-Oceanic North (B) & −0.33 & NBR amplitude (moisture contrast) \\
+        Vosges (D) & −0.06 & CRSWIR offset (baseline moisture) \\
+        \bottomrule
+    \end{tabular}
+    \caption{Mean out-of-sample $R^2$ across tiles and embedding dimensions remains negative for every ecoregion, confirming that embeddings are not linear recombinations of harmonics. Dominant cues from the ridge projections highlight which phenological axes the embeddings still reference (e.g., CRSWIR offsets, NBR amplitudes).}
+    \label{tab:similarity_summary}
+\end{table}
+
+Table~\ref{tab:similarity_summary} reports the ecoregion–weighted mean of \(R^2_{t,k}\) across tiles and all 14 embedding dimensions, together with the harmonic descriptor that carries the largest normalised ridge weight (the same cue usually matches the top Pearson correlation). Most regions exhibit negative mean $R^2$, confirming that no linear combination of harmonics can reconstruct the embeddings wholesale, even though specific dimensions still correlate with interpretable cues such as CRSWIR offsets or NBR amplitudes. This absence of linear reconstruction, combined with the alignment patterns, supports a hybrid interpretation: AlphaEarth embeddings retain phenological axes while injecting spatial context learned during pre-training. That extra context likely underpins the smoother boundaries and higher accuracy gains observed in mixed Atlantic and montane landscapes, where purely temporal descriptors struggle. Per-dimension coefficients and correlation tables appear in Supplementary Section~S3 for readers who need the fine-grained breakdown.
+
+\section{Discussion and Outlook}
+
+% Claim: Embeddings are superior features; deciduous map is the proof-of-concept application
+% Evidence: Table~\ref{tab:multi_model_cv}, Table~\ref{tab:coherence_summary}
+% Warrant: Controlled benchmark isolates feature quality; operational map demonstrates viability
+\textbf{Foundation embeddings provide superior features for phenological forest mapping.} Under controlled experimental conditions—matched dimensionality, identical training data, consistent classifiers—AlphaEarth embeddings improve accuracy by \(2.8 \pm 0.4\) percentage points and macro-F1 by \(3.7 \pm 0.5\) across three classifiers (Table~\ref{tab:multi_model_cv}). Random Forest halves calibration error (0.033 vs 0.059) and cuts map fragmentation by two-thirds (Table~\ref{tab:coherence_summary}). \textbf{The primary contribution of this work is not the map itself, but rather the rigorous feature benchmark it enables, demonstrating that embeddings outperform hand-crafted harmonics while simultaneously showing that these feature advantages translate to operational deployment at national scale.} The deciduous–evergreen map of France serves as both the controlled testbed for the comparison and an operationally useful product. Crucially, these gains require no local GPU clusters and no feature engineering. For end-users, the compute-or-craft bottleneck disappears—though the embeddings themselves are computationally expensive to create, they arrive precomputed and freely accessible via Google Earth Engine. This shifts the primary challenge from complex model building to curating high-quality ground-truth data, a task that aligns with the core expertise of environmental agencies.
+
+% Claim: Embedding advantages are spatially selective
+% Evidence: Table~\ref{tab:tile_buckets}; Figure~\ref{fig:driver_deltas}
+% Warrant: Spatial context helps in mixed mosaics but offers little in phenologically uniform regions
+Embedding advantages are spatially selective. Table~\ref{tab:tile_buckets} shows that 14.5\,\% of tiles deliver marked embedding gains (+12.6\,pp) while only 2.1\,\% favour harmonics. These tiles cluster in wetter, clay-rich mosaics with high stand diversity (Figure~\ref{fig:driver_deltas})—Atlantic bocage, Pyrenean gradients, alpine foothills—where deciduous and evergreen mix over 10--100\,m.
+
+\textbf{Yet this strength exposes a clear challenge.} Harmonic wins persist in Mediterranean shrublands where evergreen dominance and strong seasonal forcing reward explicit drought indices. \textit{This finding contradicts the expectation that spatial context always helps.} While embeddings solve the spatial context problem in mixed mosaics, they offer little benefit where phenological signals are uniformly weak and homogeneous evergreen stands dominate the landscape. This boundary condition defines the operational limits: embeddings democratise forest mapping in heterogeneous temperate landscapes but do not eliminate the fundamental challenge of distinguishing forest types in regions with low seasonal contrast.
+
+\textbf{Future operational strategies: hybrid models as a direct response to Mediterranean limitations.} The Mediterranean results motivate a concrete next step. Although we did not test hybrid models in this study, our empirical findings point to a clear solution: deploy embeddings as the default feature set nationwide but augment them with drought-sensitive harmonic cues (e.g., CRSWIR amplitude, NBR residual variance) specifically in Mediterranean shrublands where phenological amplitude remains the strongest discriminator. This hybrid strategy directly addresses the performance pattern documented in Figure~\ref{fig:driver_deltas} and Table~\ref{tab:regional_performance}: harmonics still hold a narrow edge in dry, evergreen-dominated tiles (+0.7\,pp macro-F1 in Mediterranean), while embeddings dominate everywhere else (+3--11\,pp in Atlantic, montane, and Pyrenean gradients). Region-specific feature augmentation would preserve the embedding advantages in heterogeneous landscapes while recovering the harmonic strength in drought-limited zones—a testable hypothesis for future work that emerges naturally from the boundary conditions we have documented.
+
+Calibration is now an operational asset. Embeddings halve expected calibration error (0.033 vs 0.059) and keep macro-F1 stable when thresholds shift between 0.45 and 0.55 (Section~\ref{sec:metrics}). Agencies can raise the evergreen threshold to 0.55 to suppress false positives in mixed stands, confident that predicted probabilities remain honest because the maximum calibration error stays at 0.114. This reliability removes the guesswork that often accompanies pixel-based products.
+
+Three limitations point to concrete extensions. First, label scarcity in Mediterranean regions still caps performance; expanding field campaigns in drought-prone ecoregions would close the remaining gap. Second, the current binary label space hides genus-level structure—Supplementary Section~S10 already shows 82.8\,\% genus accuracy, so denser supervision could unlock richer taxonomies. Third, ancillary covariates such as soil moisture and climate anomalies could be added to the lightweight classifiers to recover the 2\,\% of tiles where harmonics still lead.
+
+Phenology-aware disturbance monitoring will benefit directly. Change detectors such as CCDC, BFAST, and LandTrendr rely on class-conditioned thresholds; accurate deciduous-versus-evergreen priors let analysts tolerate larger residuals for deciduous stands while tightening evergreen thresholds. Embedding-derived maps therefore lower false alerts without suppressing genuine anomalies, especially when paired with annual updates of the AlphaEarth embeddings.
+
+Transferability and scalability follow naturally. The 2023 model generalises to 2018–2022 embeddings with macro-IoU 0.786–0.801 (Table~\ref{tab:temporal_stability}), and compatibility with BD Forêt and Copernicus DLT stays intact (Table~\ref{tab:product_comparison_national}). The bottleneck has shifted from modelling skill to label coverage: forest agencies now need to organise field campaigns and QA pipelines rather than build GPU infrastructure. That inversion plays to their strengths and sets the stage for extending this workflow to other biomes.
+
+\section{Conclusion}
+
+\textbf{Foundation embeddings deliver superior features for phenological forest mapping.} Under controlled experimental conditions—matched dimensionality, identical training folds, consistent classifiers—AlphaEarth embeddings raise accuracy to 91.9\,\%, macro-F1 to 89.7\,\%, halve calibration error, and cut map fragmentation by 68\,\% compared to carefully tuned harmonic baselines. No GPU infrastructure. No feature engineering. Gains concentrate in humid, mixed-stand mosaics where spatial neighbourhood context matters most. \textbf{The scientific contribution is a rigorous feature benchmark proving that foundation embeddings outperform hand-crafted features.} The France-wide deciduous–evergreen map is the application that demonstrates this claim at national scale—showing that feature advantages translate to operational viability while also delivering an ecologically meaningful product.
+
+The operational case is compelling. A frozen 2023 model maintains macro-IoU 0.79–0.80 across five years (Table~\ref{tab:temporal_stability}). Outputs align with existing national products (Table~\ref{tab:product_comparison_national}). The main limitation is label scarcity in Mediterranean regions—a field campaign challenge, not a computational one.
+
+\textbf{The operational bottleneck has shifted.} Because embeddings are precomputed and freely available on Google Earth Engine, environmental agencies no longer need machine learning specialists or GPU clusters to produce high-quality forest maps. The primary challenge shifts from complex infrastructure and model engineering to curating high-quality ground-truth data—a task aligned with their core expertise. Forest mapping becomes what agencies do best: organize field campaigns, verify labels, and maintain quality standards. \textbf{This study proves that foundation embeddings deliver superior features for Earth observation; the deciduous–evergreen application demonstrates they work at national scale.}
+
+\section*{Data Availability}
+Training data summaries, model configurations, cross-validation splits, and similarity analysis outputs will be made available with the publication. The 2023 10\,m deciduous–evergreen map of France will also be released.
+
+\section*{Code Availability}
+Code to reproduce data preparation, feature extraction, model training, evaluation, and similarity analyses will be released upon publication.
+
+\bibliographystyle{Frontiers-Harvard}
+\bibliography{phenology}
+
+\end{document}
+
+% change

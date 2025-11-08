@@ -1,0 +1,8 @@
+model = "gpt-5-codex"
+model_reasoning_effort = "high"
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+project_doc_fallback_filenames = ["article/docs/AGENTS.codex.md", "AGENTS.codex.md"]
+
+[history]
+persistence = "save-all"

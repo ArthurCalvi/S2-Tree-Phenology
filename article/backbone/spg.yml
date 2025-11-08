@@ -1,0 +1,875 @@
+meta:
+  project: S2-Tree-Phenology
+  version: 8
+  updated: '2025-11-02T20:30:00Z'
+  central_claim: AlphaEarth embeddings deliver high-performing leaf-type features,
+    with the French deciduous-evergreen map serving as the application case that demonstrates
+    their operational value.
+nodes:
+- id: claim_embeddings_outperform
+  type: claim
+  label: AlphaEarth embeddings provide superior leaf-type features across classifiers,
+    with the French deciduous-evergreen application map demonstrating accuracy, calibration,
+    and spatial coherence gains over harmonic descriptors.
+  refs:
+  - article/manuscript/article.tex#fig:national_map
+  - article/manuscript/article.tex#Discussion-and-Outlook
+  - results/final_model/metrics_embeddings_topk_k14.json
+  - results/analysis_coherence/coherence_summary.csv
+  notes: Validate beyond France, keep the deciduous map framed explicitly as the application
+    case, and track Mediterranean uplift; add 2024 field validation before broad release.
+- id: claim_operational_shift
+  type: claim
+  label: Precomputed AlphaEarth embeddings remove GPU and feature-engineering bottlenecks,
+    letting agencies deploy lightweight classifiers while the French deciduous map
+    remains the flagship application rather than the core contribution.
+  refs:
+  - article/manuscript/article.tex#Discussion-and-Outlook
+  - results/inference_embeddings_2023
+  - results/comparison/national_comparison_summary.csv
+  - article/artifacts/review_loop2_20251102T174232Z.json
+  notes: Assumes continued Earth Engine access, manageable download costs, and publishing
+    of QA checklist for external agencies; rephrase 'label stewardship' jargon per Gemini loop3
+    while foregrounding the embedding-first narrative.
+- id: claim_temporal_transfer
+  type: claim
+  label: The frozen 2023 embedding random forest sustains macro-IoU around 0.79-0.80
+    on 2018-2022 imagery, enabling backward updates without retraining.
+  refs:
+  - article/manuscript/article.tex#tab:temporal_stability
+  - results/evaluation/embedding_temporal_overview.csv
+  notes: Need verification on future embedding vintages and extreme disturbance years;
+    extend check to 2024 once embeddings land.
+- id: contribution_feature_benchmark
+  type: contribution
+  label: Matched-dimension benchmark comparing harmonic descriptors and AlphaEarth
+    embeddings across GRECO-stratified folds.
+  refs:
+  - article/manuscript/article.tex#Data-and-Methods
+  - results/final_model/metrics_embeddings_topk_k14.json
+  - src/training/recursive_feature_selection.py
+  - src/training/train_rf_selected_features.py
+  - src/training/train_rf_embeddings.py
+  notes: Ensure recursive feature elimination seeds remain locked for reproducibility.
+- id: contribution_operational_map
+  type: contribution
+  label: French deciduous-evergreen application maps generated from embedding random
+    forest exports aligned with BD Foret and Copernicus DLT.
+  refs:
+  - article/manuscript/article.tex#fig:national_map
+  - results/inference_embeddings_2023
+  - results/postprocessing/embeddings/embedding_classes_masked.tif
+  - article/manuscript/article.tex#tab:product_comparison_national
+  - article_methods.json#Embeddings Post-processing (VRT & Forest Mask)
+  notes: Publish QA checklist before distribution, capture tile-level QC results alongside
+    rasters, and reference these products as application evidence rather than the headline
+    contribution.
+- id: concept_deciduous_application
+  type: concept
+  label: Deciduous-evergreen map acts as the application showcase confirming embedding
+    feature quality.
+  refs:
+  - article/manuscript/article.tex#fig:national_map
+  - article/manuscript/article.tex#Discussion-and-Outlook
+  - results/postprocessing/embeddings/embedding_classes_masked.tif
+  - article/artifacts/review_loop2_20251102T174232Z.json
+  notes: Maintain narrative clarity that embeddings are the principal advance and the
+    national map demonstrates their operational readiness per author guidance.
+- id: concept_embedding_third_path
+  type: concept
+  label: Embedding feature benchmark embodies the 'third path' between handcrafted
+    harmonics and end-to-end deep models.
+  refs:
+  - article/manuscript/article.tex#Abstract
+  - article/manuscript/article.tex#Introduction
+  - article/manuscript/article.tex#Discussion-and-Outlook
+  - results/final_model/metrics_embeddings_topk_k14.json
+  - article/artifacts/review_loop3_20251102T161247Z.json
+  notes: Keep framing focused on proving embedding feature quality first, with the deciduous
+    map positioned as the confirmatory application per latest author guidance.
+- id: contribution_tile_context
+  type: contribution
+  label: Environmental driver analysis linking embedding gains to wetter, diverse
+    ecoregions.
+  refs:
+  - article/manuscript/article.tex#fig:driver_deltas
+  - results/analysis_context/tile_heterogeneity/subset_analysis/subset_driver_summary.json
+  - src/analysis/analyze_tile_subset_drivers.py
+  notes: Re-run when ancillary covariates update; clay fraction raster still lacks
+    Corsica coverage.
+- id: contribution_similarity_insight
+  type: contribution
+  label: Ridge projections show embeddings are not linear recombinations of harmonic
+    descriptors.
+  refs:
+  - article/manuscript/article.tex#tab:similarity_summary
+  - results/analysis_similarity/summary/summary_region.csv
+  - src/analysis/compute_embedding_harmonic_similarity.py
+  notes: Add direct channel importance plots for Supplementary Section S3.
+- id: dataset_greco_tiles
+  type: dataset
+  label: 639 GRECO-balanced 2.5 km tiles with 14.1 million labelled pixels and per-region
+    weights.
+  refs:
+  - data/training/training_tiles2023_w_corsica
+  - results/datasets/training_datasets_pixels.parquet
+  - src/sampling/dataset_creation.py
+  - 'article_methods.json#Sampling & Dataset Preparation (harmonics)'
+  - article/manuscript/article.tex#tab:greco_summary
+  notes: BD Foret polygons dominate labels; confirmed training_datasets_pixels.parquet exists—document weight column schema and update once 2019+ inventory releases are ingested.
+- id: dataset_alphaearth_embeddings
+  type: dataset
+  label: AlphaEarth 64-D embeddings aligned with training tiles for 2018, 2020, 2022,
+    and 2023.
+  refs:
+  - data/training/embeddings
+  - data/training/embeddings_2018
+  - data/training/embeddings_2020
+  - data/training/embeddings_2022
+  - ops/bash/run_sequential_geefetch.sh
+  - 'article_methods.json#Embeddings RF Inference (GeeFetch UInt16)'
+  - article/manuscript/article.tex#AlphaEarth-embeddings
+  notes: Monitor Earth Engine release notes for channel changes and provenance updates; Geefetch staging directories are populated for 2018-2022—add checksum manifest on next export.
+- id: dataset_temporal_embeddings
+  type: dataset
+  label: AlphaEarth yearly embeddings (2018, 2020, 2022, 2023) staged for temporal
+    stability tests.
+  refs:
+  - results/evaluation/embeddings_2018
+  - results/evaluation/embeddings_2020
+  - results/evaluation/embeddings_2022
+  - results/evaluation/embeddings_2023
+  notes: 2024 embeddings pending ingestion; ensure provenance metadata accompanies
+    each vintage.
+- id: dataset_embedding_tiles
+  type: dataset
+  label: AlphaEarth embedding rasters exported via Geefetch for 2023 inference.
+  refs:
+  - results/geefetch_tests/alphaearth_embeddings
+  - ops/bash/run_sequential_geefetch.sh
+  - ops/geefetch/configs/alphaearth_embeddings/config_alphaearth_embeddings_2023.yaml
+  - article_methods.json#Embeddings RF Inference (GeeFetch UInt16)
+  notes: Confirm rescaling metadata saved with tiles; sampled 2023 Geefetch export tif files present—add checksum manifest and rescaling JSON before next batch rerun.
+- id: dataset_embedding_map
+  type: dataset
+  label: Nationwide 10 m embedding-derived deciduous-evergreen map products.
+  refs:
+  - results/postprocessing/embeddings/embedding_classes_masked.tif
+  - results/inference_embeddings_2023
+  - ops/qa/jobs/qa_corsica.sh
+  notes: QA scripts still skip Landes and Corsica spot checks; add them before release.
+- id: dataset_harmonic_features
+  type: dataset
+  label: Sentinel-2 harmonic descriptors built from NDVI, NBR, and CRSWIR fits per
+    tile.
+  refs:
+  - src/features/run_prepare_inference_feature.sh
+  - results/feature_selection/selected_features.txt
+  - article/manuscript/article.tex#tab:harmonic14
+  notes: Check seasonal gap handling for cloudy Atlantic winters prior to 2024 refresh.
+- id: dataset_tile_context_features
+  type: dataset
+  label: Ancillary tile covariates (soil, climate, diversity) used for driver analysis.
+  refs:
+  - results/analysis_context/tile_context_features.parquet
+  - article_methods.json#Tile subset driver analysis
+  notes: Need Corsica-specific climate normals; currently reuses mainland ERA5 grid.
+- id: method_harmonic_extraction
+  type: method
+  label: Monthly Sentinel-2 compositing, harmonic fitting, and descriptor assembly
+    with residual variance.
+  refs:
+  - src/features/prepare_inference_feature.py
+  - src/features/run_prepare_inference_feature.sh
+  notes: Review cloud masking thresholds before adding 2024 mosaics.
+- id: method_embedding_selection
+  type: method
+  label: Selection of 14 AlphaEarth channels through ecoregion-balanced recursive
+    feature elimination.
+  refs:
+  - src/training/recursive_feature_selection_embeddings.py
+  - results/feature_selection_embeddings/features_embeddings_topk_k14.txt
+  notes: Re-run selection if AlphaEarth channel definitions shift.
+- id: method_recursive_feature_elimination
+  type: method
+  label: Recursive feature elimination aligning harmonic and embedding feature counts
+    across GRECO folds.
+  refs:
+  - src/training/recursive_feature_selection.py
+  - results/feature_selection/selected_features.txt
+  - results/feature_selection_embeddings/metrics_embeddings_selected.json
+  notes: Document random seeds and fold manifests to avoid drift.
+- id: method_lightweight_classifiers
+  type: method
+  label: Class-balanced logistic regression, linear SVM, and random forest training
+    with successive halving tuned on harmonics.
+  refs:
+  - src/training/train_lr_selected_features.py
+  - src/training/train_rf_selected_features.py
+  - src/training/train_rf_embeddings.py
+  - src/training/tune_tabular_models.py
+  notes: Maintain shared fold manifests between feature families.
+- id: method_embedding_inference
+  type: method
+  label: Random Forest inference on AlphaEarth embeddings with tiling and band validation.
+  refs:
+  - src/inference/inference_rf_embeddings.py
+  - src/inference/run_single_rf_embedding_tile.py
+  - article_methods.json#Embeddings RF Inference (GeeFetch UInt16)
+  notes: Need automated consistency check for band naming before batch jobs.
+- id: method_postprocess_embeddings
+  type: method
+  label: VRT assembly and forest masking of embedding class rasters.
+  refs:
+  - src/post-processing/build_embedding_class_vrt.py
+  - src/post-processing/mask_embedding_classes.py
+  - article_methods.json#Embeddings Post-processing (VRT & Forest Mask)
+  notes: Forest mask path placeholder still in scripts; parameterize before production.
+- id: method_spatial_metrics
+  type: method
+  label: Edge and patch density computation plus tile delta z-scores for heterogeneity
+    analysis.
+  refs:
+  - src/analysis/compute_coherence_metrics.py
+  - src/analysis/analyze_tile_heterogeneity.py
+  - results/analysis_coherence/coherence_summary.csv
+  notes: Confirm patch labeling uses consistent 8-neighbour connectivity.
+- id: method_tile_context_analysis
+  type: method
+  label: Subset driver analysis linking performance deltas to ancillary covariates.
+  refs:
+  - src/analysis/analyze_tile_subset_drivers.py
+  - src/analysis/plot_tile_subset_drivers.py
+  - results/analysis_context/tile_heterogeneity/subset_analysis
+  notes: Requires refresh once new ERA5 climatology is ingested.
+- id: method_temporal_evaluation
+  type: method
+  label: Frozen 2023 model applied to 2018-2022 embeddings with IoU and drift tracking.
+  refs:
+  - src/analysis/summarize_embedding_temporal_stability.py
+  - results/evaluation/embedding_temporal_overview.csv
+  notes: Add automation to flag embedding vintages with sensor gaps.
+- id: method_product_comparison
+  type: method
+  label: Workflow aligning embedding predictions with BD Foret and Copernicus DLT
+    for national agreement metrics.
+  refs:
+  - src/comparison/compare_maps.py
+  - src/comparison/aggregate_comparison_metrics.py
+  - results/comparison/national_comparison_summary.csv
+  notes: Sync legend harmonisation with future map releases.
+- id: method_similarity_analysis
+  type: method
+  label: Ridge regression and nearest-neighbour analysis comparing embeddings to harmonic
+    descriptors.
+  refs:
+  - src/analysis/compute_embedding_harmonic_similarity.py
+  - src/analysis/analyze_similarity_results.py
+  - results/analysis_similarity/summary
+  notes: Document random seeds for ridge models; rerun after harmonic updates.
+- id: result_multi_model_gain
+  type: result
+  label: Embeddings raise accuracy by 2.8 +/- 0.4 pp and macro-F1 by 3.7 +/- 0.5 pp
+    across logistic regression, linear SVM, and random forest.
+  refs:
+  - article/manuscript/article.tex#tab:multi_model_cv
+  - results/final_model/metrics_embeddings_topk_k14.json
+  - results/final_model/phenology_metrics_selected_features.json
+  notes: Five-fold GRECO-weighted cross-validation; reconfirm after retraining logistic
+    regression with refreshed class weights.
+- id: result_regional_uplift
+  type: result
+  label: Atlantic and montane GRECO regions gain +6.5 to +10.8 pp macro-F1 from embeddings
+    while Mediterranean gain stays near +0.7 pp.
+  refs:
+  - article/manuscript/article.tex#tab:regional_performance
+  - results/final_model/eco_metrics_embeddings_topk_k14.csv
+  - results/final_model/phenology_eco_metrics_selected_features.csv
+  notes: Mediterranean macro-F1 uplift remains under 1 pp; schedule extra field plots.
+- id: result_calibration_coherence
+  type: result
+  label: Embedding random forest halves expected calibration error (0.033 vs 0.059)
+    and cuts patch density by 68 percent with edge density down 59 percent.
+  refs:
+  - article/manuscript/article.tex#tab:coherence_summary
+  - results/analysis_calibration/embeddings/calibration_metrics.json
+  - results/analysis_calibration/harmonic/calibration_metrics.json
+  - results/analysis_coherence/coherence_summary.csv
+  notes: Need regional calibration plots for supplement; smoke directories contain
+    partial reruns.
+- id: result_tile_advantage
+  type: result
+  label: Fourteen point five percent of tiles exceed +1 sigma delta accuracy (+12.6
+    pp) in favour of embeddings, while harmonic wins are limited to 2.1 percent.
+  refs:
+  - article/manuscript/article.tex#tab:tile_buckets
+  - results/analysis_context/tile_heterogeneity/performance_bucket_summary.csv
+  notes: Investigate outlier harmonic wins concentrated in Mediterranean shrublands.
+- id: result_driver_covariates
+  type: result
+  label: Embedding advantage tiles show wetter climate (+2.1 percent rainfall) and
+    higher diversity (+24 percent) while harmonic wins align with dry evergreen mosaics.
+  refs:
+  - article/manuscript/article.tex#fig:driver_deltas
+  - results/analysis_context/tile_heterogeneity/subset_analysis/subset_driver_summary.json
+  - results/analysis_context/tile_heterogeneity/eco_region_summary.csv
+  notes: Update once clay fraction raster extends to overseas territories.
+- id: result_temporal_stability
+  type: result
+  label: Temporal evaluation reports macro-IoU between 0.786 and 0.801 with macro-F1
+    staying within 3.8 to 5.4 pp of the 2023 baseline.
+  refs:
+  - article/manuscript/article.tex#tab:temporal_stability
+  - results/evaluation/embedding_temporal_overview.csv
+  - results/evaluation/embedding_temporal_fold_overview.csv
+  notes: Validate 2024 embeddings once released; current set lacks QA on missing tiles.
+- id: result_product_alignment
+  type: result
+  label: Embedding maps maintain national agreement with BD Foret (overall accuracy
+    0.638) and DLT (0.628) similar to harmonic outputs.
+  refs:
+  - article/manuscript/article.tex#tab:product_comparison_national
+  - results/comparison/national_comparison_summary.csv
+  - results/comparison/embeddings_vs_bdforet_by_region.csv
+  notes: Add region-level QA before operational publication.
+- id: result_similarity_gaps
+  type: result
+  label: Mean out-of-sample R2 stays negative (-0.31 to -0.90) across regions, confirming
+    embeddings encode non-harmonic cues.
+  refs:
+  - article/manuscript/article.tex#tab:similarity_summary
+  - results/analysis_similarity/summary/summary_region.csv
+  notes: Need to cross-check with updated harmonic basis if new indices are added.
+- id: result_national_map_quality
+  type: result
+  label: Embedding map delivers smoother national patterns while matching National
+    Forest Inventory proportions.
+  refs:
+  - article/manuscript/article.tex#fig:national_map
+  - results/inference_embeddings_2023
+  - results/postprocessing/embeddings/embedding_classes_masked.tif
+  notes: Forest mask provenance still pending in ops/qa docs.
+- id: figure_teaser
+  type: figure
+  label: Teaser comparison of satellite view, embedding visualization, and classification
+    map.
+  refs:
+  - article/manuscript/article.tex#fig:teaser_sat_emb_class
+  - article/images/sat_emb_classes.png
+  notes: Source tile from Southeast France; ingestion script not yet versioned.
+- id: figure_training_tiles
+  type: figure
+  label: Distribution of the 639 ecoregion-balanced training tiles.
+  refs:
+  - article/manuscript/article.tex#fig:training_tiles
+  - article/images/tiles_2_5_km_final_visualization.png
+  notes: Update once new tiles or weights are added.
+- id: figure_harmonics_decomposition
+  type: figure
+  label: Harmonic decomposition of an NDVI annual curve.
+  refs:
+  - article/manuscript/article.tex#fig:harmonics_decomposition
+  - article/images/harmonics_decomposition.png
+  notes: Ensure caption stays aligned with feature list after any descriptor changes.
+- id: figure_national_map
+  type: figure
+  label: France 2023 deciduous-evergreen map from the embedding model.
+  refs:
+  - article/manuscript/article.tex#fig:national_map
+  - article/images/France_Map_emb.png
+  notes: Needs inset coordinates in caption for reproducibility.
+- id: figure_tile_multiscale
+  type: figure
+  label: Five representative tiles comparing Sentinel-2, embedding, and harmonic predictions.
+  refs:
+  - article/manuscript/article.tex#fig:h2_multiscale
+  - article/images/figure4_h2_panel.png
+  notes: Median-filter baseline referenced in supplement still missing from repo.
+- id: figure_driver_dual
+  type: figure
+  label: Relative covariate shifts for embedding gains and harmonic wins.
+  refs:
+  - article/manuscript/article.tex#fig:driver_deltas
+  - article/images/embedding_harmonic_driver_dual.png
+  notes: Spearman correlation table lives only in JSON summary; consider adding CSV
+    export.
+- id: figure_temporal_panel
+  type: figure
+  label: Three GRECO tiles observed across 2018, 2020, 2022, and 2023.
+  refs:
+  - article/manuscript/article.tex#fig:h3_temporal
+  - article/images/figure5_h3_panel.png
+  notes: Add annotation for Corsican disturbance year in final layout.
+- id: figure_comparison_products
+  type: figure
+  label: Three sites comparing embedding map with BD Foret and Copernicus DLT.
+  refs:
+  - article/manuscript/article.tex#fig:comparison_products
+  - article/images/Comparison_dlt_bdforet_harmonic_embedding.png
+  notes: Regenerate once QA pipeline exports map thumbnails automatically.
+- id: table_greco_summary
+  type: table
+  label: Summary of the eleven GRECO ecoregions used for sampling and evaluation.
+  refs:
+  - article/manuscript/article.tex#tab:greco_summary
+  - results/datasets/training_datasets_pixels.parquet
+  notes: Update counts if new inventory years change pixel totals.
+- id: table_harmonic14
+  type: table
+  label: Fourteen harmonic descriptors retained after recursive feature elimination.
+  refs:
+  - article/manuscript/article.tex#tab:harmonic14
+  - results/feature_selection/selected_features.txt
+  notes: Ensure descriptor names stay in sync with feature selection outputs.
+- id: table_multi_model_cv
+  type: table
+  label: Cross-validated accuracy and macro-F1 for three classifiers trained on harmonic
+    and embedding feature sets.
+  refs:
+  - article/manuscript/article.tex#tab:multi_model_cv
+  - results/final_model/metrics_embeddings_topk_k14.json
+  - results/final_model/phenology_metrics_selected_features.json
+  notes: Add confidence intervals once bootstrap code is ready.
+- id: table_regional_performance
+  type: table
+  label: Cross-validated accuracy and macro-F1 per GRECO region for harmonic and embedding
+    feature sets.
+  refs:
+  - article/manuscript/article.tex#tab:regional_performance
+  - results/final_model/eco_metrics_embeddings_topk_k14.csv
+  - results/final_model/phenology_eco_metrics_selected_features.csv
+  notes: Mediterranean sample size remains low; flag in supplementary material.
+- id: table_coherence_summary
+  type: table
+  label: National spatial coherence metrics aggregated over the evaluation tiles.
+  refs:
+  - article/manuscript/article.tex#tab:coherence_summary
+  - results/analysis_coherence/coherence_summary.csv
+  notes: Include median-filter baseline in supplementary tables.
+- id: table_tile_buckets
+  type: table
+  label: Distribution of tile-level performance buckets derived from cross-validated
+    predictions.
+  refs:
+  - article/manuscript/article.tex#tab:tile_buckets
+  - results/analysis_context/tile_heterogeneity/performance_bucket_summary.csv
+  notes: Bucket definitions rely on z-scores; document sigma threshold in methods.
+- id: table_temporal_stability
+  type: table
+  label: Temporal evaluation of the 2023 Random Forest applied to AlphaEarth embeddings
+    from different years.
+  refs:
+  - article/manuscript/article.tex#tab:temporal_stability
+  - results/evaluation/embedding_temporal_overview.csv
+  notes: Add IoU per class once computed.
+- id: table_product_comparison
+  type: table
+  label: National agreement with existing products (forest pixels only).
+  refs:
+  - article/manuscript/article.tex#tab:product_comparison_national
+  - results/comparison/national_comparison_summary.csv
+  notes: Supplementary breakdown per ecoregion still pending.
+- id: table_similarity_summary
+  type: table
+  label: Mean out-of-sample R2 and dominant harmonic cues per region.
+  refs:
+  - article/manuscript/article.tex#tab:similarity_summary
+  - results/analysis_similarity/summary/summary_region.csv
+  notes: Track top cue nomenclature as harmonic descriptors evolve.
+- id: citation_alphaearth
+  type: citation
+  label: AlphaEarth foundation embeddings pretrained on multi-sensor Earth observation
+    data.
+  refs:
+  - AlphaEarth2025
+  notes: Track upcoming releases for channel or licensing changes.
+- id: limitation_mediterranean_labels
+  type: limitation
+  label: Mediterranean label scarcity and drought dynamics keep gains modest relative
+    to Atlantic and montane regions.
+  refs:
+  - article/manuscript/article.tex#Discussion-label-scarcity
+  notes: Plan additional field campaigns and drought-year validation.
+- id: limitation_title_scope
+  type: limitation
+  label: Current title overstates universality despite France-only evidence base.
+  refs:
+  - article/manuscript/article.tex#Title
+  - article/artifacts/review_loop1_20251102T154819Z.json
+  - article/artifacts/review_loop2_20251102T160229Z.json
+  notes: Retitle to foreground France scope and the no-GPU advantage per Gemini loop2
+    guidance.
+- id: limitation_mediterranean_visual
+  type: limitation
+  label: Introduction footnote citing DLT evergreen oak errors lacks supporting inset.
+  refs:
+  - article/manuscript/article.tex#Introduction
+  - results/comparison/maps/embeddings_dlt
+  - src/comparison/compare_maps.py
+  - article/images/mediterranean_oak_inset.png
+  - article/artifacts/review_loop1_20251102T154819Z.json
+  - article/artifacts/review_loop2_20251102T160229Z.json
+  - article/artifacts/review_loop3_20251102T161247Z.json
+  - article/artifacts/review_loop2_20251102T174232Z.json
+  notes: Use comparison pipeline to export the missing Mediterranean evergreen oak inset (article/images/mediterranean_oak_inset.png) highlighting DLT misclassification and cite it alongside the Introduction footnote; include provenance note in caption once generated.
+- id: limitation_temporal_event_citation
+  type: limitation
+  label: Temporal robustness section links 2018 Corsica dip to wildfires without citation.
+  refs:
+  - article/manuscript/article.tex#Temporal-robustness-and-legacy-alignment
+  - article/artifacts/review_loop1_20251102T154819Z.json
+  - article/artifacts/review_loop3_20251102T161247Z.json
+  - article/artifacts/review_loop2_20251102T174232Z.json
+  notes: Source EFFIS or national disturbance reports before keeping causal language.
+- id: limitation_reference_context
+  type: limitation
+  label: Reference label section enumerates sources without framing strategy or trade-offs.
+  refs:
+  - article/manuscript/article.tex#Reference-labels
+  - article/artifacts/review_loop1_20251102T154819Z.json
+  - article/artifacts/review_loop2_20251102T160229Z.json
+  - article/artifacts/review_loop3_20251102T161247Z.json
+  notes: Add opening sentence explaining confidence-versus-coverage rationale across four datasets
+    so the label strategy context precedes the enumerated sources; stage the ABT framing (need high-confidence anchors AND broad coverage BUT sparse field plots) per Gemini loop3.
+- id: limitation_hybrid_speculation
+  type: limitation
+  label: Hybrid workflow recommendation reads as conclusion despite no supporting experiment.
+  refs:
+  - article/manuscript/article.tex#Discussion-and-Outlook
+  - article/artifacts/review_loop1_20251102T154819Z.json
+  - article/artifacts/review_loop2_20251102T174232Z.json
+  notes: Recast as future work or add experiment before asserting production guidance, and explicitly tie the hybrid concept to Mediterranean boundary conditions highlighted by the benchmark.
+- id: limitation_similarity_heading
+  type: limitation
+  label: Section 3.5 heading poses a question rather than stating embeddings add non-linear cues.
+  refs:
+  - article/manuscript/article.tex#What-do-embeddings-retain-from-harmonics
+  - article/artifacts/review_loop1_20251102T154819Z.json
+  notes: Rename subsection to declarative phrasing per reviewer guidance.
+- id: limitation_intro_mediterranean_complication
+  type: limitation
+  label: Introduction lacks explicit Mediterranean boundary-condition foreshadow for the embedding advantage.
+  refs:
+  - article/manuscript/article.tex#Introduction
+  - article/artifacts/review_loop3_20251102T161247Z.json
+  - article/artifacts/review_loop2_20251102T174232Z.json
+  notes: Insert complication beat forecasting modest uplift over Mediterranean evergreen mosaics so the deciduous map reads as the stress-test application validating embedding features per current author guidance.
+- id: limitation_methods_complication
+  type: limitation
+  label: Methods opener skips the confidence-versus-coverage complication before listing workflows.
+  refs:
+  - article/manuscript/article.tex#Data-and-Methods
+  - article/manuscript/article.tex#Reference-labels
+  - article/artifacts/review_loop2_20251102T174232Z.json
+  notes: Lead Section 2 with the challenge of building a nationally balanced label set (confidence vs coverage) before detailing sampling and reference datasets, tying the narrative back to the GRECO balancing strategy.
+- id: limitation_temporal_event_overlay
+  type: limitation
+  label: Temporal robustness claims lack figure linking degradation hotspots with documented fire and drought extents.
+  refs:
+  - article/manuscript/article.tex#Temporal-robustness-and-legacy-alignment
+  - results/evaluation/embedding_temporal_overview.csv
+  - src/visualization/plot_block_metrics.py
+  - article/images/temporal_disturbance_overlay.png
+  - article/artifacts/review_loop3_20251102T161247Z.json
+  - article/artifacts/review_loop2_20251102T174232Z.json
+  notes: Generate supplementary overlay (article/images/temporal_disturbance_overlay.png) aligning performance dips with 2017 fire perimeters and 2018-2019 drought indices before reiterating disturbance attribution.
+- id: limitation_label_stewardship_jargon
+  type: limitation
+  label: Abstract and discussion wording 'label stewardship' risks confusing general readers.
+  refs:
+  - article/manuscript/article.tex#Abstract
+  - article/manuscript/article.tex#Discussion-and-Outlook
+  - article/artifacts/review_loop3_20251102T161247Z.json
+  - article/artifacts/review_loop2_20251102T174232Z.json
+  notes: Rephrase to 'curation of high-quality ground-truth data' when describing the bottleneck shift to mirror manuscript wording the reviewers endorsed.
+- id: limitation_r2_context
+  type: limitation
+  label: Section 3.5 reports negative out-of-sample R2 without clarifying the implication.
+  refs:
+  - article/manuscript/article.tex#What-do-embeddings-retain-from-harmonics
+  - results/analysis_similarity/summary/summary_region.csv
+  - article/artifacts/review_loop3_20251102T161247Z.json
+  notes: Add clause explaining that negative R2 indicates harmonic linear reconstructions underperform the mean baseline, underscoring embedding non-linear cues.
+- id: limitation_missing_geefetch_tiles
+  type: limitation
+  label: Geefetch export tiles absent from repository despite being cited as inference inputs.
+  refs:
+  - results/geefetch_tests/alphaearth_embeddings
+  - ops/bash/run_sequential_geefetch.sh
+  - ops/geefetch/configs/alphaearth_embeddings/config_alphaearth_embeddings_2023.yaml
+  notes: Re-run Geefetch export and commit checksum/log manifest so inference provenance is traceable.
+- id: limitation_abstract_label_control
+  type: limitation
+  label: Abstract overstates agency control of label collection when describing bottleneck shift.
+  refs:
+  - article/manuscript/article.tex#Abstract
+  - article/artifacts/review_loop2_20251102T160229Z.json
+  notes: Rephrase to highlight ongoing label scarcity and stewardship challenges highlighted in Discussion.
+edges:
+- source: dataset_greco_tiles
+  target: method_harmonic_extraction
+  relation: used_by
+- source: dataset_greco_tiles
+  target: method_embedding_selection
+  relation: used_by
+- source: dataset_greco_tiles
+  target: method_recursive_feature_elimination
+  relation: used_by
+- source: dataset_greco_tiles
+  target: method_lightweight_classifiers
+  relation: used_by
+- source: dataset_greco_tiles
+  target: method_tile_context_analysis
+  relation: used_by
+- source: dataset_alphaearth_embeddings
+  target: method_embedding_selection
+  relation: used_by
+- source: dataset_alphaearth_embeddings
+  target: method_lightweight_classifiers
+  relation: used_by
+- source: dataset_alphaearth_embeddings
+  target: method_temporal_evaluation
+  relation: used_by
+- source: dataset_temporal_embeddings
+  target: method_temporal_evaluation
+  relation: used_by
+- source: dataset_harmonic_features
+  target: method_lightweight_classifiers
+  relation: used_by
+- source: dataset_tile_context_features
+  target: method_tile_context_analysis
+  relation: used_by
+- source: dataset_embedding_tiles
+  target: method_embedding_inference
+  relation: used_by
+- source: method_harmonic_extraction
+  target: dataset_harmonic_features
+  relation: leads_to
+- source: method_embedding_inference
+  target: dataset_embedding_map
+  relation: leads_to
+- source: method_postprocess_embeddings
+  target: dataset_embedding_map
+  relation: supports
+- source: method_embedding_selection
+  target: method_lightweight_classifiers
+  relation: supports
+- source: method_recursive_feature_elimination
+  target: method_lightweight_classifiers
+  relation: supports
+- source: method_lightweight_classifiers
+  target: result_multi_model_gain
+  relation: leads_to
+- source: method_lightweight_classifiers
+  target: result_regional_uplift
+  relation: leads_to
+- source: method_spatial_metrics
+  target: result_calibration_coherence
+  relation: supports
+- source: method_spatial_metrics
+  target: result_tile_advantage
+  relation: leads_to
+- source: method_spatial_metrics
+  target: result_national_map_quality
+  relation: supports
+- source: method_tile_context_analysis
+  target: result_driver_covariates
+  relation: leads_to
+- source: method_temporal_evaluation
+  target: result_temporal_stability
+  relation: leads_to
+- source: method_product_comparison
+  target: result_product_alignment
+  relation: leads_to
+- source: method_similarity_analysis
+  target: result_similarity_gaps
+  relation: leads_to
+- source: method_embedding_inference
+  target: result_national_map_quality
+  relation: leads_to
+- source: method_postprocess_embeddings
+  target: result_national_map_quality
+  relation: supports
+- source: contribution_feature_benchmark
+  target: result_multi_model_gain
+  relation: supports
+- source: contribution_feature_benchmark
+  target: claim_embeddings_outperform
+  relation: supports
+- source: contribution_feature_benchmark
+  target: concept_embedding_third_path
+  relation: supports
+- source: contribution_operational_map
+  target: result_national_map_quality
+  relation: supports
+- source: contribution_operational_map
+  target: concept_deciduous_application
+  relation: supports
+- source: result_national_map_quality
+  target: concept_deciduous_application
+  relation: supports
+- source: concept_deciduous_application
+  target: claim_embeddings_outperform
+  relation: supports
+- source: concept_deciduous_application
+  target: claim_operational_shift
+  relation: supports
+- source: result_multi_model_gain
+  target: concept_embedding_third_path
+  relation: supports
+- source: concept_embedding_third_path
+  target: claim_embeddings_outperform
+  relation: supports
+- source: concept_embedding_third_path
+  target: claim_operational_shift
+  relation: supports
+- source: contribution_operational_map
+  target: claim_operational_shift
+  relation: supports
+- source: contribution_operational_map
+  target: claim_temporal_transfer
+  relation: supports
+- source: contribution_tile_context
+  target: result_driver_covariates
+  relation: supports
+- source: contribution_tile_context
+  target: claim_embeddings_outperform
+  relation: supports
+- source: contribution_similarity_insight
+  target: result_similarity_gaps
+  relation: supports
+- source: contribution_similarity_insight
+  target: claim_embeddings_outperform
+  relation: supports
+- source: result_multi_model_gain
+  target: claim_embeddings_outperform
+  relation: supports
+- source: result_regional_uplift
+  target: claim_embeddings_outperform
+  relation: supports
+- source: result_calibration_coherence
+  target: claim_embeddings_outperform
+  relation: supports
+- source: result_tile_advantage
+  target: claim_embeddings_outperform
+  relation: supports
+- source: result_driver_covariates
+  target: claim_embeddings_outperform
+  relation: supports
+- source: result_similarity_gaps
+  target: claim_embeddings_outperform
+  relation: supports
+- source: result_national_map_quality
+  target: claim_operational_shift
+  relation: supports
+- source: result_calibration_coherence
+  target: claim_operational_shift
+  relation: supports
+- source: result_product_alignment
+  target: claim_operational_shift
+  relation: supports
+- source: result_multi_model_gain
+  target: claim_operational_shift
+  relation: supports
+- source: citation_alphaearth
+  target: claim_operational_shift
+  relation: supports
+- source: citation_alphaearth
+  target: concept_embedding_third_path
+  relation: supports
+- source: result_temporal_stability
+  target: claim_temporal_transfer
+  relation: supports
+- source: table_greco_summary
+  target: dataset_greco_tiles
+  relation: supports
+- source: table_harmonic14
+  target: method_harmonic_extraction
+  relation: supports
+- source: table_multi_model_cv
+  target: result_multi_model_gain
+  relation: supports
+- source: table_regional_performance
+  target: result_regional_uplift
+  relation: supports
+- source: table_coherence_summary
+  target: result_calibration_coherence
+  relation: supports
+- source: table_tile_buckets
+  target: result_tile_advantage
+  relation: supports
+- source: table_temporal_stability
+  target: result_temporal_stability
+  relation: supports
+- source: table_product_comparison
+  target: result_product_alignment
+  relation: supports
+- source: table_similarity_summary
+  target: result_similarity_gaps
+  relation: supports
+- source: figure_teaser
+  target: claim_embeddings_outperform
+  relation: supports
+- source: figure_training_tiles
+  target: dataset_greco_tiles
+  relation: supports
+- source: figure_harmonics_decomposition
+  target: method_harmonic_extraction
+  relation: elaborates
+- source: figure_national_map
+  target: result_national_map_quality
+  relation: supports
+- source: figure_tile_multiscale
+  target: result_calibration_coherence
+  relation: supports
+- source: figure_driver_dual
+  target: result_driver_covariates
+  relation: supports
+- source: figure_temporal_panel
+  target: result_temporal_stability
+  relation: supports
+- source: figure_comparison_products
+  target: result_product_alignment
+  relation: supports
+- source: limitation_mediterranean_labels
+  target: claim_embeddings_outperform
+  relation: caveat
+- source: limitation_title_scope
+  target: claim_embeddings_outperform
+  relation: qualifies
+- source: limitation_mediterranean_visual
+  target: claim_operational_shift
+  relation: qualifies
+- source: limitation_temporal_event_citation
+  target: claim_temporal_transfer
+  relation: qualifies
+- source: limitation_reference_context
+  target: contribution_feature_benchmark
+  relation: qualifies
+- source: limitation_hybrid_speculation
+  target: claim_operational_shift
+  relation: qualifies
+- source: limitation_intro_mediterranean_complication
+  target: claim_embeddings_outperform
+  relation: qualifies
+- source: limitation_methods_complication
+  target: contribution_feature_benchmark
+  relation: qualifies
+- source: limitation_temporal_event_overlay
+  target: claim_temporal_transfer
+  relation: qualifies
+- source: limitation_label_stewardship_jargon
+  target: claim_operational_shift
+  relation: qualifies
+- source: limitation_r2_context
+  target: contribution_similarity_insight
+  relation: qualifies
+- source: limitation_similarity_heading
+  target: contribution_similarity_insight
+  relation: qualifies
+- source: limitation_missing_geefetch_tiles
+  target: dataset_embedding_tiles
+  relation: qualifies
+- source: limitation_abstract_label_control
+  target: claim_operational_shift
+  relation: qualifies

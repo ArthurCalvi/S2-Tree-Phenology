@@ -1,0 +1,31 @@
+project:
+  name: "Embedding for remote sensing to map deciduous trees"
+  one_line_claim: "Draft central claim here."
+
+paths:
+  repo_root: "."
+  article_root: "article"
+  spg: "article/backbone/spg.yml"
+  outline: "article/backbone/outline.yml"
+  manuscript_main: "article/manuscript/article.tex"
+  manuscript_sup: "article/manuscript/supplementary_materials.tex"
+  references_bib: "article/manuscript/references.bib"
+  results_dir: "results"
+  images_dir: "article/images"
+  docs_dir: "article/docs"
+  guidelines_dir: "article/docs/guidelines"
+
+planner:
+  outline_strategy: "minimize_switches"
+  allow_graph_mutation: true
+
+readability_gates:
+  clarity_min: 4.0
+  storytelling_min: 4.0
+  readability_min: 4.0
+  max_confusions: 2
+  max_style_findings: 2
+
+loop:
+  max_iters: 3
+  stop_on_success: true

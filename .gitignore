@@ -39,6 +39,23 @@ wheels/
 *.txt
 *.md
 !/README.md
+!AGENTS.md
+!CLAUDE.md
+!GEMINI.md
+!article/docs/
+!article/docs/**
+!article/backbone/
+!article/backbone/**
+!article/manuscript/
+!article/manuscript/**
+!article/scripts/
+!article/scripts/**
+!article/arxiv/
+!article/arxiv/**
+!docs/architecture/
+!docs/architecture/**
+!ops/
+!ops/**
 *.html
 *.css
 *.js
@@ -107,3 +124,20 @@ venv/
  
 # Allow repository-level documentation
 !/README.md
+!AGENTS.md
+!CLAUDE.md
+!GEMINI.md
+!article/docs/
+!article/docs/**
+!article/backbone/
+!article/backbone/**
+!article/manuscript/
+!article/manuscript/**
+!article/scripts/
+!article/scripts/**
+!article/arxiv/
+!article/arxiv/**
+!docs/architecture/
+!docs/architecture/**
+!ops/
+!ops/**
