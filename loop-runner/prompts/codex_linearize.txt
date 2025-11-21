@@ -1,0 +1,27 @@
+ROLE: Agent 1b — Outline Planner.
+
+INPUTS:
+- SPG: {{SPG_PATH}}
+- Literature cache: {{ARXIV_DIR}}/** and {{LITERATURE_INDEX}} (Claude research prep)
+- Latest Gemini review JSON (if present) from {{REVIEW_DIR}}/
+- Config: article/config/loop.yaml (outline_strategy={{OUTLINE_STRATEGY}})
+- Guidance: article/docs/AGENTS.codex.md (outline policies)
+
+TASKS:
+1) Produce {{OUTLINE_PATH}} (YAML) with:
+   - ABT at top (and/but/therefore)
+   - contributions[] (3–5 bullets)
+   - imrad.{Introduction,Methods,Results,Discussion} as paragraph bullets
+2) For every bullet, reference the SPG node IDs it realizes, list the concrete artefact paths (results/**, article/images/**), attach supporting citation nodes/papers from {{ARXIV_DIR}}/**, and note which reviewer comments (if any) it addresses.
+3) Emit a figure/table checklist and TODOs for missing artefacts under {{RESULTS_DIR}} or {{IMAGES_DIR}}; explicitly call out manuscript beats that Gemini flagged as unclear or unsupported.
+4) Note which src/ pipelines or ops scripts must run to refresh stale artefacts (point to article_methods.json entries) and mark them as TODOs when required.
+5) Flag in-line where reviewer requests require structural changes (e.g., new subsection, reordered evidence) so Claude can act on them.
+6) Provide up to 2 alternative orderings (A/B) in the JSON summary, explaining when each variant should be chosen (e.g., emphasising calibration vs. operations or storytelling impact).
+7) Adapt the outline to conform with the author guidance below—experiment with alternative framings or emphasis where helpful:
+
+=== AUTHOR GUIDELINES ===
+{{AUTHOR_GUIDELINES}}
+========================
+
+OUTPUT:
+- Write YAML to {{OUTLINE_PATH}}; print JSON validating `article/scripts/schemas/outline.schema.json` with sections for checklist, TODOs, and alternative orderings (include readability/storytelling improvement tasks when relevant).

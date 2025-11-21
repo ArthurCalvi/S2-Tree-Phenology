@@ -1,0 +1,68 @@
+{
+  "type": "object",
+  "required": [
+    "teachback_summary",
+    "clarity_score",
+    "storytelling_score",
+    "readability_score",
+    "missing_beats",
+    "unsupported_claims",
+    "confusions",
+    "style_findings"
+  ],
+  "properties": {
+    "teachback_summary": { "type": "string", "maxLength": 2000 },
+    "clarity_score": { "type": "number", "minimum": 1, "maximum": 5 },
+    "storytelling_score": { "type": "number", "minimum": 1, "maximum": 5 },
+    "readability_score": { "type": "number", "minimum": 1, "maximum": 5 },
+    "missing_beats": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "section": { "type": "string" },
+          "beat": { "type": "string" },
+          "why": { "type": "string" }
+        },
+        "required": ["section", "beat"]
+      }
+    },
+    "unsupported_claims": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "loc": { "type": "string" },
+          "claim": { "type": "string" },
+          "needed": { "type": "string" }
+        },
+        "required": ["claim"]
+      }
+    },
+    "confusions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "span": { "type": "string" },
+          "why": { "type": "string" },
+          "fix": { "type": "string" }
+        },
+        "required": ["span", "why"]
+      }
+    },
+    "style_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "section": { "type": "string" },
+          "issue": { "type": "string" },
+          "example_quote": { "type": "string" },
+          "suggestion": { "type": "string" }
+        },
+        "required": ["issue", "suggestion"]
+      }
+    }
+  }
+}

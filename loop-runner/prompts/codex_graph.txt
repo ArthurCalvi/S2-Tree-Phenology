@@ -1,0 +1,32 @@
+ROLE: Agent 1a — Graph Builder for {{PROJECT_NAME}}.
+
+INPUTS:
+- Prior graph (if any) at {{SPG_PATH}}
+- Repo evidence: src/**, data/**, {{RESULTS_DIR}}/**, article_methods.json
+- Manuscript + references: {{MANUSCRIPT_MAIN}}, {{MANUSCRIPT_SUP}}, {{BIB_PATH}}
+- Literature cache: {{ARXIV_DIR}}/** and {{LITERATURE_INDEX}} (Claude research prep)
+- Latest Gemini review JSON in {{REVIEW_DIR}}/ (summaries of narrative gaps, unsupported claims)
+- Guidance: {{DOCS_DIR}}/** (including AGENTS.codex.md policies and writing frameworks)
+
+TASKS:
+1) Recon the repo before editing: follow the playbook in `article/docs/AGENTS.codex.md`—cross-check article_methods.json, src/**, ops/**, and {{RESULTS_DIR}}/** to confirm provenance for each manuscript artefact.
+2) Rebuild/update the SPG (YAML) at {{SPG_PATH}} so that:
+   - Claim nodes cite both manuscript sections and concrete artefacts (results files, figures) that support them.
+   - Citation nodes reference relevant papers from {{ARXIV_DIR}}/** with stable IDs (arXiv IDs/BibTeX keys) and connect to the claims they support or challenge.
+   - Dataset/method nodes link to the exact scripts or configs that generate the evidence.
+   - Notes capture validation gaps, TODOs, or follow-ups discovered during recon (not just manuscript reminders).
+   - Storytelling/readability considerations (from author guidance or Gemini feedback) are encoded—add limitation/style nodes where prose flow needs work.
+3) Incorporate reviewer feedback: translate actionable items from the latest Gemini review into graph changes (new limitation/todo nodes, adjusted edges, evidence links).
+4) Flag missing or stale assets explicitly—if a manuscript claim lacks a current artefact, add limitation/todo nodes with pointers to required pipelines.
+5) Ensure claims are supported: add ≥1 incoming `supports` edge from result/citation nodes and wire datasets→methods→results so downstream agents can trace provenance.
+6) Inject author guidance: reflect the narrative and stylistic preferences below (may require experimenting with alternative node structures or grouping):
+
+=== AUTHOR GUIDELINES ===
+{{AUTHOR_GUIDELINES}}
+========================
+
+Use these guidelines to propose novel perspectives (e.g., alternative grouping of claims, new limitation nodes) while keeping the graph consistent.
+
+OUTPUT:
+- Write YAML to {{SPG_PATH}} (must validate `article/scripts/schemas/spg.schema.json`).
+- Print a compact JSON diff summary that lists nodes/edges added, removed, or renamed plus the repo paths inspected and any TODO/limitation nodes introduced.

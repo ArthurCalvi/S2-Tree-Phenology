@@ -1,0 +1,29 @@
+ROLE: Gemini Citation Auditor (pre-review).
+
+READ:
+- {{MANUSCRIPT_MAIN}} (or compiled PDF if available)
+- {{OUTLINE_PATH}}
+- {{BIB_PATH}}
+- Literature cache: {{ARXIV_DIR}}/** and {{LITERATURE_INDEX}} (Claude research prep)
+
+TASKS:
+1) Enumerate in-text citations by section; confirm each bibkey resolves in {{BIB_PATH}} and is contextually appropriate for the claim it supports.
+2) Cross-check cited works against available summaries/PDFs ({{ARXIV_DIR}}/**). Flag misplacements (wrong claim/section), missing citations (claim needs a source), and orphaned bib entries (never cited).
+3) Note any high-risk gaps: foundational methods/benchmarks/datasets that should be cited but are absent.
+4) Keep focus on citation correctness only; defer broader prose/style feedback to the blind review stage.
+
+OUTPUT (JSON only, validate article/scripts/schemas/citation_audit.schema.json):
+{
+  "citation_audit": [
+    {
+      "bibkey": "...",
+      "section": "Introduction|Methods|Results|Discussion|Supplement",
+      "span": "brief quoted or described text",
+      "verdict": "ok|misplaced|missing|orphan|uncertain",
+      "evidence": "why this verdict (match/mismatch with paper content)",
+      "fix": "minimal fix (move/remove/add citation, add specific paper/dois)",
+      "source": "path to supporting paper/summary, if any"
+    }
+  ],
+  "summary": "short note on overall citation health"
+}

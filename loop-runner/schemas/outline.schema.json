@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["title", "contributions", "abt", "imrad"],
+  "properties": {
+    "title": { "type": "string" },
+    "contributions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "abt": {
+      "type": "object",
+      "required": ["and", "but", "therefore"],
+      "properties": {
+        "and": { "type": "string" },
+        "but": { "type": "string" },
+        "therefore": { "type": "string" }
+      }
+    },
+    "imrad": {
+      "type": "object",
+      "required": ["Introduction", "Methods", "Results", "Discussion"],
+      "properties": {
+        "Introduction": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "Methods": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "Results": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "Discussion": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["citation_audit"],
+  "properties": {
+    "citation_audit": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["bibkey", "verdict"],
+        "properties": {
+          "bibkey": { "type": "string" },
+          "section": {
+            "type": "string",
+            "enum": ["Introduction", "Methods", "Results", "Discussion", "Supplement", "Other"]
+          },
+          "span": { "type": "string" },
+          "verdict": {
+            "type": "string",
+            "enum": ["ok", "misplaced", "missing", "orphan", "uncertain"]
+          },
+          "evidence": { "type": "string" },
+          "fix": { "type": "string" },
+          "source": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": { "type": "string" }
+  },
+  "additionalProperties": false
+}
