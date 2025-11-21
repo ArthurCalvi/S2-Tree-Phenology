@@ -56,6 +56,11 @@ wheels/
 !docs/architecture/**
 !ops/
 !ops/**
+
+# Loop runner
+loop-runner/node_modules/
+!loop-runner/
+!loop-runner/**
 *.html
 *.css
 *.js

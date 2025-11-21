@@ -11,45 +11,26 @@ France-wide deciduous vs evergreen mapping at 10 m resolution. The project compa
 5. **Run national inference**: use the feature or embedding inference CLIs (`src/inference/inference_rf_on_tiles.py`, `src/inference/inference_rf_embeddings.py`) from Jean Zay job arrays to tile through France.
 6. **Evaluate & report**: QA scripts in `ops/qa/jobs/` and analysis notebooks under `src/analysis/` reproduce the figures/statistics referenced in the article.
 
-## Article Automation Loop
+## Article Automation Loop (TypeScript)
 
-1. Install CLI dependencies and YAML support once: `pip install pyyaml` (ensure `codex`, `claude`, and `gemini` CLIs are on `PATH`).
-2. Fill the tokens in `article/config/loop.yaml` (project name, claim, repo paths).
-3. Launch iterative drafting and review: `python article/scripts/loop.py`.
-   - Add `--mode interactive` to watch each agent run in your terminal; omit it for fully headless automation.
-   - Use `--start-from claude` or `--start-from gemini` to skip earlier stages on the first loop; pass `--build-pdf` if you want the loop to run `latexmk` (skipped by default).
-   - Provide temporary author instructions with `--guideline "..."` (repeatable) or `--guideline-file path/to/notes.md`; these shape Codex and Claude only—Gemini remains blind.
-   - Adjust `readability_gates` in `article/config/loop.yaml` (clarity/storytelling/readability minimums plus max confusions/style findings) to control stop conditions.
-   - Loop order: Codex builds the SPG → Codex linearises the outline → Claude refreshes LaTeX (consuming the latest Gemini review) → optional `latexmk` build → Gemini relays blind-review JSON (saved in `article/artifacts/`).
-   - The run stops early when `clarity_score` ≥ configured minimum and confusions fall below the set threshold.
+1. Ensure `codex`, `claude`, and `gemini` CLIs are on `PATH`; set `ANTHROPIC_API_KEY`. Trust `.mcp.json` for the arxiv MCP (storage defaults to `article/arxiv/papers`).
+2. Fill tokens in `loop-runner/config/loop.yaml` (project name, paths).
+3. From `loop-runner/`: `npm install` (Node >=20 recommended), then run `npm run loop -- --start-from research` (flags: `--build-pdf`, `--guideline*`, `--start-from <stage>`).
+   - Order: Claude Research (SDK, minimal permissions) → Codex graph/outline → Claude draft → Gemini citation audit → Gemini blind review.
+   - Citation audits and reviews land in `article/artifacts/`; research output in `research_loop*.json`.
+   - Loop stops early when readability gates in `loop.yaml` are satisfied.
 
-### Command reference
-
-| Command | When to use |
-| --- | --- |
-| `python article/scripts/loop.py` | Full autonomous loop (Codex → Claude → Gemini) in headless mode. |
-| `python article/scripts/loop.py --mode interactive` | Observe each agent’s output step-by-step with live Gemini stream updates. |
-| `python article/scripts/loop.py --start-from claude` | Begin the first loop at Claude (later loops run full Codex → Claude → Gemini sequence). |
-| `python article/scripts/loop.py --start-from gemini` | Begin the first loop at Gemini only (useful for a quick re-review); subsequent loops include all stages. |
-| `python article/scripts/loop.py --build-pdf` | Add a `latexmk` build after Claude edits (skipped if `latexmk` missing). |
-| `python article/scripts/loop.py --guideline "journal requires problem-first intro"` | Inject ad-hoc author guidance for the session (can be repeated). |
-| `python article/scripts/loop.py --guideline-file notes/author_style.md` | Load additional guidelines from a file (relative or absolute path). |
-
-Gemini reviews are saved under `article/artifacts/review_loop<iteration>_<timestamp>.json` for traceability.
-See `article/README.md` for detailed loop configuration, timing behaviour, and agent expectations.
-
-Gemini’s JSON now reports `clarity_score`, `storytelling_score`, `readability_score`, and detailed `style_findings[]`, making it easier to police pleasant prose (the main bottleneck when using AI for scholarly writing).
-After each run, the CLI prints a diff summary for `article.tex`, `supplementary_materials.tex`, and `references.bib` so you can spot manuscript changes at a glance.
+Gemini JSON carries `clarity_score`, `storytelling_score`, `readability_score`, and `style_findings[]`. A diff summary prints for `article.tex`, `supplementary_materials.tex`, and `references.bib` after each run.
 
 ### Planner outline strategies
 
-Set in `article/config/loop.yaml` (`planner.outline_strategy`):
+Set in `loop-runner/config/loop.yaml` (`planner.outline_strategy`):
 - `minimize_switches` – prefer continuity with the existing outline, reordering only when essential.
 - `max_support` – prioritise sections that have the strongest evidence and citations, even if that reorders content.
 - `novelty_first` – surface newly added graph nodes or recently updated claims before legacy material.
 - `baseline_first` – reset to the canonical outline ordering for a grounding pass before refinements.
 
-Inputs, outputs, and fine-grained behaviour are configured in `article/config/loop.yaml`, while agent prompts live under `article/scripts/prompts/`.
+Inputs, outputs, and fine-grained behaviour are configured in `loop-runner/config/loop.yaml`, while agent prompts live under `loop-runner/prompts/`.
 
 ## Repository Layout Highlights
 

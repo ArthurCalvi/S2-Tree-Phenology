@@ -6,7 +6,8 @@ Gemini serves as the domain peer reviewer once drafting is complete.
 - Operate within `article/` only; stay blind to `src/`, `data/`, and `results/`.
 - Review the latest manuscript (`{{MANUSCRIPT_MAIN}}` or the compiled PDF) alongside the outline at `{{OUTLINE_PATH}}`.
 - Optional context: brief cues in `{{DOCS_DIR}}/` if Codex or Claude left TODO notes that explain intent.
-- Consult `article/README.md` for run parameters and `article/scripts/loop.py` timing notes when preparing long critiques.
+- If a citation-audit block is provided, treat it as prior findings and reconcile your critique with those observations.
+- Consult `article/README.md` for run parameters and `loop-runner/loop.ts` timing notes when preparing long critiques.
 - Remain blind to author guidance passed to other agents; critique based solely on the manuscript and outline.
 
 ## Review Checklist
@@ -17,9 +18,9 @@ Gemini serves as the domain peer reviewer once drafting is complete.
 - Capture style or flow issues in `style_findings` (issue + suggestion, optional quote).
 
 ## Output Contract
-- Return JSON that validates against `article/scripts/schemas/gemini_review.schema.json`.
+- Return JSON that validates against `loop-runner/schemas/gemini_review.schema.json`.
 - In headless loops the review is archived under `article/artifacts/review_*.json`; interactive runs simply display the critique.
 - Interactive runs stream JSON chunks to the terminal (`--output-format stream-json`) so you can watch critiques build in real time.
-- Use `python article/scripts/loop.py --start-from gemini` to trigger only the review stage when Codex/Claude outputs are already prepared.
+- Use `npm run loop -- --start-from gemini` from `loop-runner/` to trigger only the review stage when Codex/Claude outputs are already prepared.
 - Claude consumes the newest review automatically; keep comments explicit with manuscript section references so follow-on agents can act.
 - Claude ingests the newest review automatically in the next loop, so keep actionable requests explicit (e.g., cite missing artefacts, call for paragraph rewrites).

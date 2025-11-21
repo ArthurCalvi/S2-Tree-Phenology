@@ -21,4 +21,4 @@ Claude turns the Codex outline into polished LaTeX prose while protecting the ma
 
 ## Handoff
 - Capture unresolved questions or data gaps either as inline `\todo{}` or in the outline notes so the next loop can act on them.
-- Run only this stage with `python article/scripts/loop.py --start-from claude` when Codex has already refreshed the backbone.
+- Run only this stage with `npm run loop -- --start-from claude` from `loop-runner/` when Codex has already refreshed the backbone.

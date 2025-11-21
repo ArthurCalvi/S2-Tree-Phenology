@@ -31,7 +31,7 @@ Never commit secrets or machine-specific paths. Duplicate templates in `ops/geef
 - `article/manuscript/`: canonical LaTeX sources for the paper and supplements.
 - `article/docs/`: writing frameworks (IMRaD, CARS, Toulmin, CCC/ABT, Gopen & Swan) plus deeper research notes under `article/docs/research/`. Agent-specific briefs live in `article/docs/AGENTS.codex.md`, `article/docs/CLAUDE.md`, and `article/docs/GEMINI.md`.
 - `article/backbone/`: active story graph (`spg.yml`) and outline (`outline.yml`) plus README guides for each structure.
-- `article/scripts/`: orchestration prompts (`prompts/`), schemas (`schemas/`), and the loop runner (`loop.py`).
+- `loop-runner/`: TypeScript loop runner (`loop.ts`), prompts, schemas, and config (`config/loop.yaml`).
 - `article/arxiv/`: cached PDFs/markdown summaries of cited foundation-model and remote-sensing papers (e.g., AlphaEarth Foundations, SatMAE, SSL4Eco). Use these when refining literature context or detailing methodology inputs.
 - `article/artifacts/review_*.json`: latest Gemini blind-review output. Claude must address these comments in the next drafting pass.
 - `article/artifacts/review_loopX_<timestamp>.json`: time-stamped history of Gemini reviews for each loop iteration.
@@ -45,7 +45,7 @@ Agents (Codex, Claude, Gemini) docs lives here : /docs, visit it whenever you ar
 ## Manuscript Revision Workflow
 Rewrite `article/manuscript/article.tex` and `article/manuscript/supplementary_materials.tex` iteratively, aligning with the outline and graph definitions in `article/backbone/`. Maintain a concise scientific style: analyse experimental results without extrapolation, avoid references to repository scripts, and favour clear prose over bullet points. Prior to edits, review `article/docs/writing-guidelines.md` alongside supporting frameworks in `article/docs/` and literature in `article/arxiv/` or `article/docs/research/`.
 
-Keep an up-to-date narrative map by enriching the notes fields in `article/backbone/outline.yml` and `article/backbone/spg.yml` whenever hypotheses, figures, or section priorities shift. Automation agents can run the full loop via `python article/scripts/loop.py` once `article/config/loop.yaml` tokens are filled.
+Keep an up-to-date narrative map by enriching the notes fields in `article/backbone/outline.yml` and `article/backbone/spg.yml` whenever hypotheses, figures, or section priorities shift. Automation agents can run the full loop via `npm run loop -- --start-from research` from `loop-runner/` once `loop-runner/config/loop.yaml` tokens are filled.
 - Use `--start-from claude` or `--start-from gemini` to resume a loop midstream, and append `--build-pdf` when you want `latexmk` to run; add `--mode interactive` to supervise each agent manually.
 - `--start-from` only affects the first iteration of a run; later loops execute the full Codex → Claude → Gemini order automatically.
 

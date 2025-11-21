@@ -14,6 +14,8 @@ paths:
   images_dir: "article/images"
   docs_dir: "article/docs"
   guidelines_dir: "article/docs/guidelines"
+  arxiv_dir: "article/arxiv/papers"
+  literature_index: "article/arxiv/index.json"
 
 planner:
   outline_strategy: "minimize_switches"
